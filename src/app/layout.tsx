@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { Newsreader } from "next/font/google";
 import "./globals.css";
@@ -15,7 +15,6 @@ const geistMono = localFont({
   weight: "100 900",
 });
 
-// 衬线展示字体，用于问候语，贴近 Claude 的编辑感
 const newsreader = Newsreader({
   subsets: ["latin"],
   weight: ["400", "500"],
@@ -25,6 +24,14 @@ const newsreader = Newsreader({
 export const metadata: Metadata = {
   title: "SuperAdmin AI",
   description: "Claude 风格的 AI 聊天界面",
+};
+
+/** 禁用用户缩放，保持 1:1 缩放 */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({

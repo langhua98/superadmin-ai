@@ -38,7 +38,7 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
           <button
             key={text}
             onClick={() => onPick(text)}
-            className="rounded-full border border-border bg-base px-3.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-hover hover:text-primary"
+            className="min-h-[40px] rounded-full border border-border bg-base px-4 py-2 text-sm text-muted transition-colors hover:bg-hover hover:text-primary active:bg-hover"
           >
             {text}
           </button>

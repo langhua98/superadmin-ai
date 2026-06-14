@@ -32,16 +32,16 @@ export function AppShell() {
 
       {/* 主区域 */}
       <main className="flex min-w-0 flex-1 flex-col">
-        {/* 移动端顶栏 */}
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2 md:hidden">
+        {/* 移动端顶栏：高度至少 52px，汉堡按钮 44×44px */}
+        <div className="flex items-center gap-1 border-b border-border px-2 py-1.5 md:hidden">
           <button
             onClick={() => setSidebarOpen((v) => !v)}
-            className="rounded-md p-2 text-muted transition-colors hover:bg-hover"
+            className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition-colors hover:bg-hover active:bg-hover"
             aria-label="切换侧边栏"
           >
-            {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
+            {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
-          <span className="text-sm font-medium">SuperAdmin AI</span>
+          <span className="text-base font-medium">SuperAdmin AI</span>
         </div>
 
         <ChatArea />

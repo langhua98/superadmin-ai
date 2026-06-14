@@ -16,7 +16,7 @@ export function ConversationItem({ conversation, active, onSelect, onDelete }: P
     <div
       onClick={onSelect}
       className={cn(
-        "group flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors",
+        "group flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg px-3 text-sm transition-colors",
         active ? "bg-hover text-primary" : "text-muted hover:bg-hover hover:text-primary",
       )}
     >
@@ -26,10 +26,10 @@ export function ConversationItem({ conversation, active, onSelect, onDelete }: P
           e.stopPropagation();
           onDelete();
         }}
-        className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:text-primary group-hover:opacity-100"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-muted opacity-0 transition-opacity hover:text-primary group-hover:opacity-100"
         aria-label="删除对话"
       >
-        <Trash2 size={15} />
+        <Trash2 size={16} />
       </button>
     </div>
   );

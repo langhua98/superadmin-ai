@@ -38,7 +38,7 @@ export function InputBar({ onSend, placeholder = "给 Claude 发消息…", auto
   };
 
   return (
-    <div className="rounded-[1.5rem] border border-border bg-elevated p-3 shadow-sm transition-shadow focus-within:shadow-md">
+    <div className="rounded-[1.5rem] border border-border bg-elevated px-4 py-3 shadow-sm transition-shadow focus-within:shadow-md">
       <textarea
         ref={textareaRef}
         value={value}
@@ -50,40 +50,43 @@ export function InputBar({ onSend, placeholder = "给 Claude 发消息…", auto
         onKeyDown={handleKeyDown}
         rows={1}
         placeholder={placeholder}
-        className="scrollbar-thin max-h-[220px] w-full resize-none bg-transparent px-2 py-1 text-[15px] leading-relaxed text-primary outline-none placeholder:text-muted"
+        className="scrollbar-thin max-h-[220px] w-full resize-none bg-transparent text-base leading-relaxed text-primary outline-none placeholder:text-muted"
       />
-      <div className="mt-1 flex items-center justify-between">
-        <div className="flex items-center gap-1">
+      <div className="mt-2 flex items-center justify-between">
+        {/* 左侧工具按钮 —— 最小 44×44px 触控目标 */}
+        <div className="flex items-center gap-1 -ml-1">
           <button
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-border text-muted transition-colors hover:bg-hover hover:text-primary"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-border text-muted transition-colors hover:bg-hover hover:text-primary active:bg-hover"
             aria-label="添加附件"
           >
-            <Plus size={17} />
+            <Plus size={19} />
           </button>
           <button
-            className="flex h-8 w-8 items-center justify-center rounded-full text-muted transition-colors hover:bg-hover hover:text-primary"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-muted transition-colors hover:bg-hover hover:text-primary active:bg-hover"
             aria-label="工具"
           >
-            <SlidersHorizontal size={16} />
+            <SlidersHorizontal size={18} />
           </button>
         </div>
+
+        {/* 右侧：模型选择 + 发送 */}
         <div className="flex items-center gap-2">
-          <button className="flex items-center gap-1 rounded-lg px-2 py-1 text-[13px] text-muted transition-colors hover:bg-hover hover:text-primary">
+          <button className="flex h-9 items-center gap-1 rounded-full border border-border px-3 text-sm text-muted transition-colors hover:bg-hover hover:text-primary active:bg-hover">
             Claude Sonnet 4.6
-            <ChevronDown size={14} />
+            <ChevronDown size={15} />
           </button>
           <button
             onClick={submit}
             disabled={!hasText}
             className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-full transition-all",
+              "flex h-11 w-11 items-center justify-center rounded-full transition-all active:opacity-80",
               hasText
                 ? "bg-accent text-accent-fg hover:opacity-90"
                 : "bg-hover text-muted",
             )}
             aria-label="发送"
           >
-            <ArrowUp size={18} />
+            <ArrowUp size={20} />
           </button>
         </div>
       </div>
