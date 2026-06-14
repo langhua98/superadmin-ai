@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-base: 255 255 255;
+  --bg-surface: 247 247 245;
+  --bg-hover: 237 237 233;
+  --border: 229 229 224;
+  --text-primary: 38 38 36;
+  --text-muted: 120 119 110;
+  --accent: 217 119 87; /* Claude 标志性的赤陶橙 */
+  --accent-fg: 255 255 255;
+}
+
+.dark {
+  --bg-base: 30 30 30;
+  --bg-surface: 38 38 38;
+  --bg-hover: 51 51 51;
+  --border: 64 64 64;
+  --text-primary: 240 240 238;
+  --text-muted: 160 160 154;
+  --accent: 217 119 87;
+  --accent-fg: 255 255 255;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: rgb(var(--bg-base));
+  color: rgb(var(--text-primary));
+}
+
+/* 细滚动条 */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--border)) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--border));
+  border-radius: 9999px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 流式输出的闪烁光标 */
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+.streaming-cursor::after {
+  content: "▋";
+  margin-left: 2px;
+  animation: blink 1s step-end infinite;
+  color: rgb(var(--accent));
+}
