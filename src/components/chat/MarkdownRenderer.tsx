@@ -11,7 +11,7 @@ export function MarkdownRenderer({ content }: { content: string }) {
   const codeStyle = resolvedTheme === "dark" ? oneDark : oneLight;
 
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-none prose-pre:my-0 prose-pre:bg-transparent prose-pre:p-0">
+    <div className="prose prose-sm max-w-none text-[15px] leading-relaxed text-primary prose-headings:text-primary prose-p:text-primary prose-strong:text-primary prose-li:text-primary prose-a:text-accent prose-blockquote:border-l-accent/40 prose-blockquote:text-muted prose-table:text-primary prose-th:text-primary prose-pre:my-2 prose-pre:bg-transparent prose-pre:p-0">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
