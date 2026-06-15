@@ -34,7 +34,7 @@ export function Sidebar({ onNavigate }: Props) {
       {/* 顶部 Logo */}
       <div className="flex items-center justify-between px-4 pb-1 pt-5">
         <div className="flex items-center gap-2">
-          <ClaudeLogo size={20} className="text-accent" />
+          <ClaudeLogo size={20} className="text-accent" animate />
           <span className="font-display text-[17px] text-primary">Claude</span>
         </div>
         <button

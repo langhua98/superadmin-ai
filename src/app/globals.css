@@ -57,27 +57,11 @@ body {
 }
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
 
-/* ── 动画 ─────────────────────────────────────────────── */
+/* ── 动画（消息/下拉/侧边栏均由 GSAP 控制，仅保留流式光标） ── */
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0; }
 }
-@keyframes messageIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes dropdownIn {
-  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
-  to   { opacity: 1; transform: translateY(0)  scale(1); }
-}
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.message-in  { animation: messageIn  0.22s cubic-bezier(0.4,0,0.2,1); }
-.dropdown-in { animation: dropdownIn 0.15s cubic-bezier(0.4,0,0.2,1); transform-origin: top right; }
-.fade-in     { animation: fadeIn     0.2s  ease; }
 
 /* 流式光标 */
 .streaming-cursor::after {
