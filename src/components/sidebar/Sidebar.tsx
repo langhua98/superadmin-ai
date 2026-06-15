@@ -1,6 +1,7 @@
 "use client";
 
-import { PenSquare } from "lucide-react";
+import { useState } from "react";
+import { PenSquare, Search, X } from "lucide-react";
 import { useChatContext } from "@/context/ChatContext";
 import { useChat } from "@/hooks/useChat";
 import { ClaudeLogo } from "@/components/ClaudeLogo";
@@ -8,46 +9,72 @@ import { ConversationItem } from "./ConversationItem";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
 interface Props {
-  /** 移动端选择后关闭侧边栏 */
   onNavigate?: () => void;
 }
 
 export function Sidebar({ onNavigate }: Props) {
   const { state, dispatch } = useChatContext();
   const { newConversation } = useChat();
+  const [query, setQuery] = useState("");
 
   const handleNew = () => {
     newConversation();
+    setQuery("");
     onNavigate?.();
   };
 
+  const filtered = query.trim()
+    ? state.conversations.filter(c =>
+        c.title.toLowerCase().includes(query.toLowerCase())
+      )
+    : state.conversations;
+
   return (
     <div className="flex h-full flex-col">
-      {/* 顶部品牌 */}
-      <div className="flex items-center gap-2 px-4 pb-2 pt-4">
-        <ClaudeLogo size={22} className="text-accent" />
-        <span className="font-display text-lg text-primary">SuperAdmin</span>
-      </div>
-
-      {/* 新建对话 */}
-      <div className="px-3 pt-2">
+      {/* 顶部 Logo */}
+      <div className="flex items-center justify-between px-4 pb-1 pt-5">
+        <div className="flex items-center gap-2">
+          <ClaudeLogo size={20} className="text-accent" />
+          <span className="font-display text-[17px] text-primary">Claude</span>
+        </div>
         <button
           onClick={handleNew}
-          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-accent transition-colors hover:bg-hover"
+          className="flex h-9 w-9 items-center justify-center rounded-xl text-muted transition-colors hover:bg-hover hover:text-primary active:bg-hover"
+          aria-label="新建对话"
         >
-          <PenSquare size={17} />
-          新建对话
+          <PenSquare size={18} />
         </button>
       </div>
 
+      {/* 搜索框 */}
+      <div className="px-3 pt-3">
+        <div className="flex items-center gap-2 rounded-xl border border-border bg-elevated px-3 py-2">
+          <Search size={14} className="shrink-0 text-muted" />
+          <input
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="搜索对话"
+            className="flex-1 bg-transparent text-sm text-primary outline-none placeholder:text-muted"
+          />
+          {query && (
+            <button onClick={() => setQuery("")} className="text-muted hover:text-primary">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* 对话列表 */}
-      <div className="mt-4 flex-1 overflow-hidden">
-        <p className="px-5 pb-1 text-xs font-medium text-muted">最近</p>
-        <nav className="scrollbar-thin h-full space-y-0.5 overflow-y-auto px-3 pb-4">
-          {state.conversations.length === 0 ? (
-            <p className="px-2.5 py-2 text-xs text-muted">暂无对话记录</p>
+      <div className="mt-3 flex-1 overflow-hidden">
+        {!query && <p className="px-5 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted">最近</p>}
+        <nav className="scrollbar-thin h-full space-y-0.5 overflow-y-auto px-2 pb-4">
+          {filtered.length === 0 ? (
+            <p className="px-3 py-3 text-xs text-muted">
+              {query ? "未找到相关对话" : "暂无对话记录"}
+            </p>
           ) : (
-            state.conversations.map((conv) => (
+            filtered.map(conv => (
               <ConversationItem
                 key={conv.id}
                 conversation={conv}
@@ -56,17 +83,15 @@ export function Sidebar({ onNavigate }: Props) {
                   dispatch({ type: "SET_ACTIVE", payload: conv.id });
                   onNavigate?.();
                 }}
-                onDelete={() =>
-                  dispatch({ type: "DELETE_CONVERSATION", payload: conv.id })
-                }
+                onDelete={() => dispatch({ type: "DELETE_CONVERSATION", payload: conv.id })}
               />
             ))
           )}
         </nav>
       </div>
 
-      {/* 底部：主题切换 */}
-      <div className="border-t border-border p-3">
+      {/* 底部主题切换 */}
+      <div className="border-t border-border p-2">
         <ThemeToggle />
       </div>
     </div>
