@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type KeyboardEvent } from "react";
-import { ArrowUp, Plus, ChevronDown, SlidersHorizontal } from "lucide-react";
+import { ArrowUp, Paperclip, Search, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -34,59 +34,62 @@ export function InputBar({ onSend, placeholder = "给 Claude 发消息…", auto
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   };
 
   return (
-    <div className="rounded-[1.5rem] border border-border bg-elevated px-4 py-3 shadow-sm transition-shadow focus-within:shadow-md">
-      <textarea
-        ref={textareaRef}
-        value={value}
-        autoFocus={autoFocus}
-        onChange={(e) => {
-          setValue(e.target.value);
-          autoGrow();
-        }}
-        onKeyDown={handleKeyDown}
-        rows={1}
-        placeholder={placeholder}
-        className="scrollbar-thin max-h-[220px] w-full resize-none bg-transparent text-base leading-relaxed text-primary outline-none placeholder:text-muted"
-      />
-      <div className="mt-2 flex items-center justify-between">
-        {/* 左侧工具按钮 —— 最小 44×44px 触控目标 */}
-        <div className="flex items-center gap-1 -ml-1">
+    <div className="rounded-3xl border border-border bg-elevated shadow-sm transition-shadow focus-within:shadow-md">
+      {/* 文本输入区 */}
+      <div className="px-5 pt-4">
+        <textarea
+          ref={textareaRef}
+          value={value}
+          autoFocus={autoFocus}
+          onChange={(e) => { setValue(e.target.value); autoGrow(); }}
+          onKeyDown={handleKeyDown}
+          rows={1}
+          placeholder={placeholder}
+          className="scrollbar-thin max-h-[200px] w-full resize-none bg-transparent text-[16px] leading-relaxed text-primary outline-none placeholder:text-muted"
+        />
+      </div>
+
+      {/* 底部工具栏 */}
+      <div className="flex items-center justify-between px-3 pb-3 pt-1">
+        {/* 左侧：附件 + 搜索 */}
+        <div className="flex items-center gap-0.5">
           <button
-            className="flex h-11 w-11 items-center justify-center rounded-full border border-border text-muted transition-colors hover:bg-hover hover:text-primary active:bg-hover"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-muted transition-colors hover:bg-hover hover:text-primary active:bg-hover"
             aria-label="添加附件"
           >
-            <Plus size={19} />
+            <Paperclip size={19} />
           </button>
           <button
-            className="flex h-11 w-11 items-center justify-center rounded-full text-muted transition-colors hover:bg-hover hover:text-primary active:bg-hover"
-            aria-label="工具"
+            className="flex h-10 items-center gap-1.5 rounded-full px-3 text-sm text-muted transition-colors hover:bg-hover hover:text-primary active:bg-hover"
+            aria-label="搜索"
           >
-            <SlidersHorizontal size={18} />
+            <Search size={15} />
+            <span>搜索</span>
           </button>
         </div>
 
         {/* 右侧：模型选择 + 发送 */}
         <div className="flex items-center gap-2">
-          <button className="flex h-9 items-center gap-1 rounded-full border border-border px-3 text-sm text-muted transition-colors hover:bg-hover hover:text-primary active:bg-hover">
+          <button className="flex h-9 items-center gap-1 rounded-full border border-border px-3 text-[13px] text-muted transition-colors hover:bg-hover hover:text-primary active:bg-hover">
             Claude Sonnet 4.6
-            <ChevronDown size={15} />
+            <ChevronDown size={14} />
           </button>
           <button
             onClick={submit}
             disabled={!hasText}
             className={cn(
-              "flex h-11 w-11 items-center justify-center rounded-full transition-all active:opacity-80",
+              "flex h-10 w-10 items-center justify-center rounded-full transition-all active:scale-95",
               hasText
-                ? "bg-accent text-accent-fg hover:opacity-90"
-                : "bg-hover text-muted",
+                ? "bg-send-on text-base hover:opacity-80"
+                : "bg-hover text-muted cursor-not-allowed",
             )}
             aria-label="发送"
           >
-            <ArrowUp size={20} />
+            <ArrowUp size={18} strokeWidth={2.5} />
           </button>
         </div>
       </div>

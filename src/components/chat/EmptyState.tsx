@@ -1,6 +1,5 @@
 "use client";
 
-import { ClaudeLogo } from "@/components/ClaudeLogo";
 import { InputBar } from "./InputBar";
 
 const SUGGESTIONS = [
@@ -20,25 +19,22 @@ function greeting(): string {
 
 export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center px-4 pb-24">
-      {/* 问候语 */}
-      <div className="mb-7 flex items-center justify-center gap-3">
-        <ClaudeLogo size={34} className="text-accent" />
-        <h1 className="font-display text-[2.1rem] font-normal leading-none text-primary">
-          {greeting()}
-        </h1>
-      </div>
+    <div className="mx-auto flex w-full max-w-[680px] flex-1 flex-col justify-center gap-5 px-5 pb-20">
+      {/* 大号问候语 — 和 Claude 一样，纯文字，衬线，居中 */}
+      <h1 className="font-display text-center text-[2rem] font-normal leading-tight text-primary sm:text-[2.4rem]">
+        {greeting()}
+      </h1>
 
-      {/* 居中的大输入框 */}
-      <InputBar onSend={onPick} autoFocus placeholder="今天我能帮你什么？" />
+      {/* 输入框 */}
+      <InputBar onSend={onPick} placeholder="给 Claude 发消息…" />
 
-      {/* 建议 */}
-      <div className="mt-4 flex flex-wrap justify-center gap-2">
+      {/* 建议气泡 */}
+      <div className="flex flex-wrap justify-center gap-2">
         {SUGGESTIONS.map((text) => (
           <button
             key={text}
             onClick={() => onPick(text)}
-            className="min-h-[40px] rounded-full border border-border bg-base px-4 py-2 text-sm text-muted transition-colors hover:bg-hover hover:text-primary active:bg-hover"
+            className="min-h-[40px] rounded-full border border-border bg-elevated px-4 py-2 text-sm text-muted transition-colors hover:bg-hover hover:text-primary active:bg-hover"
           >
             {text}
           </button>
