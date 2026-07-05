@@ -59,6 +59,7 @@ import { AcTrGeometryUtil } from '../util'
 import { acapRunDatabaseEdit } from '../util/AcApDatabaseEdit'
 import { AcEdViewKeyHandler } from './AcEdViewKeyHandler'
 import { AcTrEntityDisplayController } from './AcTrEntityDisplayController'
+import { AcTrGridOverlay } from './AcTrGridOverlay'
 import {
   assertAcTrGroupWcsBboxesConsistent,
   unionGroupWcsChildBoxes
@@ -136,6 +137,8 @@ export class AcTrView2d extends AcEdBaseView {
   private _layoutViewManager: AcTrLayoutViewManager
   /** The 3D scene containing all CAD entities organized by layouts and layers */
   private _scene: AcTrScene
+  /** Adaptive grid background rendered behind all entities */
+  private _gridOverlay: AcTrGridOverlay
   /** Flag indicating if the view needs to be re-rendered */
   private _isDirty: boolean
   /** Performance monitoring statistics display */
@@ -261,6 +264,8 @@ export class AcTrView2d extends AcEdBaseView {
     })
 
     this._scene = this.createScene()
+    this._gridOverlay = new AcTrGridOverlay()
+    this._gridOverlay.attach(this._scene.internalScene)
     this._layerAppearance = new AcTrLayerAppearanceController(
       this._scene,
       this._renderer
@@ -644,12 +649,26 @@ export class AcTrView2d extends AcEdBaseView {
   }
 
   /**
+   * Shows or hides the adaptive grid background.
+   */
+  get gridVisible() {
+    return this._gridOverlay.visible
+  }
+  set gridVisible(value: boolean) {
+    if (this._gridOverlay.visible !== value) {
+      this._gridOverlay.visible = value
+      this._isDirty = true
+    }
+  }
+
+  /**
    * Applies canvas background colour from layout background sysvars or explicit
    * API calls. Also refreshes ACI-7 foreground inversion via the style
    * manager. Does not touch `COLORTHEME` / UI chrome.
    */
   private applyCanvasBackground(value: number) {
     this._renderer.setClearColor(value)
+    this._gridOverlay?.setBackgroundColor(value)
     // Updates style-manager background, repaints ACI-7 / bg-follow materials.
     this._renderer.currentBackgroundColor = value
     this._layerAppearance.refreshTextMaterialsInObjectTree(
@@ -1515,6 +1534,8 @@ export class AcTrView2d extends AcEdBaseView {
    */
   clear() {
     this._scene.clear()
+    // Scene clear removes every child, so the grid quad must be re-attached.
+    this._gridOverlay.attach(this._scene.internalScene)
     this._isDirty = true
     this._missedImages.clear()
     this._renderer.dispose()
