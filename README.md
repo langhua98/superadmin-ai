@@ -2,7 +2,10 @@
 
 一款直接在浏览器中运行的 3D CAD 应用，实现在线模型设计与编辑。
 
-**在线使用：** https://langhua98.github.io/superadmin-ai/
+**在线使用：**
+
+- 3D 建模：https://langhua98.github.io/superadmin-ai/
+- 2D 平面制图（DWG/DXF）：https://langhua98.github.io/superadmin-ai/2d/
 
 ## 功能
 
@@ -34,6 +37,24 @@ npm run test       # 单元测试
 ```bash
 npm install --prefix plugins/macro
 npm install --prefix plugins/visual-programming
+```
+
+## 2D 平面制图（webcad2d/）
+
+`webcad2d/` 目录是独立的 2D 平面制图应用（Web CAD 2D），界面与操作类似 AutoCAD：
+
+- 打开/编辑/保存 DWG、DXF 图纸，导出 PDF/SVG
+- 绘制（直线/多段线/圆/圆弧）、修改（移动/旋转/复制/偏移/删除）、图层、文字
+- AutoCAD 式命令行与命令别名（L=直线、C=圆…）、Model/布局标签页
+- 默认简体中文界面，CAD 字体与图纸模板已本地化（不依赖境外 CDN）
+
+基于 [mlightcad/cad-viewer](https://github.com/mlightcad/cad-viewer)（MIT 许可证）定制。
+
+```bash
+cd webcad2d
+pnpm install
+pnpm dev        # 开发服务器 http://localhost:5173
+pnpm build      # 输出到 packages/cad-viewer-example/dist/
 ```
 
 ## 致谢与许可

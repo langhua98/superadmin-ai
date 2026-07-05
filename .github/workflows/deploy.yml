@@ -21,10 +21,15 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
 
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 10
+
             - name: Setup node
               uses: actions/setup-node@v4
               with:
-                  node-version: 22
+                  node-version: 24
                   cache: npm
 
             - name: Install dependencies
@@ -35,10 +40,19 @@ jobs:
                   npm ci --prefix plugins/macro
                   npm ci --prefix plugins/visual-programming
 
-            - name: Build
+            - name: Build 3D app
               run: npm run build
               env:
                   NODE_ENV: production
+
+            - name: Build 2D app
+              working-directory: webcad2d
+              run: |
+                  pnpm install
+                  pnpm build
+
+            - name: Merge 2D app into dist/2d
+              run: cp -r webcad2d/packages/cad-viewer-example/dist dist/2d
 
             - name: Upload Pages artifact
               uses: actions/upload-pages-artifact@v3
