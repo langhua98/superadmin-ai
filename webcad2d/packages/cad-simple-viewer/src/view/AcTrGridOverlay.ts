@@ -24,6 +24,7 @@ export class AcTrGridOverlay {
     this._material = new THREE.ShaderMaterial({
       uniforms: {
         uInvViewProj: { value: this._invViewProj },
+        uPixelRatio: { value: 1 },
         uBackground: { value: new THREE.Color(0x000000) },
         uLineColor: { value: new THREE.Color(0xffffff) },
         uAxisXColor: { value: new THREE.Color(0xa03030) },
@@ -39,6 +40,7 @@ export class AcTrGridOverlay {
       fragmentShader: /* glsl */ `
         varying vec2 vNdc;
         uniform mat4 uInvViewProj;
+        uniform float uPixelRatio;
         uniform vec3 uBackground;
         uniform vec3 uLineColor;
         uniform vec3 uAxisXColor;
@@ -56,22 +58,36 @@ export class AcTrGridOverlay {
           vec2 fw = fwidth(w);
           float worldPerPixel = max(max(fw.x, fw.y), 1e-12);
 
-          // Choose a power-of-10 spacing so minor cells stay >= ~12px wide.
-          float level = log2(worldPerPixel * 12.0) / log2(10.0);
+          // Smallest visible cell is ~14 CSS px regardless of device pixel
+          // ratio, so phones and desktops show the same grid density.
+          float minCell = worldPerPixel * 14.0 * uPixelRatio;
+          float level = log2(minCell) / log2(10.0);
           float base = floor(level);
-          float fade = 1.0 - fract(level);
-          float minor = pow(10.0, base + 1.0);
-          float major = minor * 10.0;
+          float t = smoothstep(0.0, 1.0, fract(level));
 
-          float gMinor = gridLine(w, minor, fw);
-          float gMajor = gridLine(w, major, fw);
-          float alpha = max(gMinor * 0.10 * fade, gMajor * 0.22);
+          // Three consecutive power-of-10 tiers, cross-faded so that zooming
+          // never pops: the finest tier fades out while the next tier eases
+          // from major down to minor emphasis (like AutoCAD's adaptive grid).
+          float s1 = pow(10.0, base + 1.0);
+          float s2 = s1 * 10.0;
+          float s3 = s2 * 10.0;
+
+          const float A_MINOR = 0.10;
+          const float A_MAJOR = 0.22;
+          float a1 = A_MINOR * (1.0 - t);
+          float a2 = mix(A_MAJOR, A_MINOR, t);
+          float a3 = A_MAJOR;
+
+          float alpha = max(
+            max(gridLine(w, s1, fw) * a1, gridLine(w, s2, fw) * a2),
+            gridLine(w, s3, fw) * a3
+          );
 
           vec3 color = mix(uBackground, uLineColor, alpha);
 
           // Highlight the world X/Y axes (thin anti-aliased lines).
-          float ax = 1.0 - min(abs(w.y) / fw.y, 1.0);
-          float ay = 1.0 - min(abs(w.x) / fw.x, 1.0);
+          float ax = 1.0 - min(abs(w.y) / (fw.y * 1.5), 1.0);
+          float ay = 1.0 - min(abs(w.x) / (fw.x * 1.5), 1.0);
           color = mix(color, uAxisXColor, ax * 0.9);
           color = mix(color, uAxisYColor, ay * 0.9);
 
@@ -82,6 +98,9 @@ export class AcTrGridOverlay {
       depthTest: false,
       depthWrite: false
     })
+    // Mobile GPUs may otherwise fall back to mediump, which breaks
+    // grid-line math for large drawing coordinates.
+    this._material.precision = 'highp'
 
     const geometry = new THREE.PlaneGeometry(2, 2)
     this._mesh = new THREE.Mesh(geometry, this._material)
@@ -91,10 +110,11 @@ export class AcTrGridOverlay {
     this._mesh.matrixAutoUpdate = false
     // The quad must never participate in picking.
     this._mesh.raycast = () => {}
-    this._mesh.onBeforeRender = (_renderer, _scene, camera) => {
+    this._mesh.onBeforeRender = (renderer, _scene, camera) => {
       this._invViewProj
         .multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
         .invert()
+      this._material.uniforms.uPixelRatio.value = renderer.getPixelRatio()
     }
   }
 
