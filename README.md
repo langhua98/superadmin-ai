@@ -1,51 +1,41 @@
-# SuperAdmin AI — Claude 风格聊天 UI
+# Web CAD
 
-一个仿 [Claude.ai](https://claude.ai) 的 AI 聊天界面，使用 Next.js 14 + TypeScript + Tailwind CSS 构建。**纯 UI 演示**，回复内容为模拟数据，逐字流式输出，无需真实 AI 后端。
+一款直接在浏览器中运行的 3D CAD 应用，实现在线模型设计与编辑。
 
-## 功能特性
+**在线使用：** https://langhua98.github.io/superadmin-ai/
 
-- 💬 **聊天对话界面** —— 支持 Markdown 渲染（代码高亮、表格、列表、引用等）
-- 📚 **对话历史侧边栏** —— 新建、切换、删除对话，自动生成标题
-- ⌨️ **模拟流式输出** —— 助手回复逐字显示的打字机效果
-- 🌗 **深色 / 浅色主题** —— 一键切换，自动持久化到 localStorage
-- 📱 **响应式布局** —— 移动端侧边栏可收起
+## 功能
 
-## 技术栈
+- 草图：直线、矩形、圆弧、多段线等
+- 建模：拉伸、放样、扫掠、旋转、布尔运算（交/并/差）
+- 编辑：移动、旋转、镜像、阵列、圆角、倒角、修剪
+- 捕捉：端点、中点、圆心、垂足、交点等智能捕捉
+- 文件：打开/保存文档，导入/导出 STEP、IGES、BREP、STL 等格式
+- 插件系统：内置宏（Macro）与可视化编程（Visual Programming）插件
+- 多语言（简体中文 / English / Português）与深浅色主题
 
-| 类别 | 技术 |
-| --- | --- |
-| 框架 | Next.js 14（App Router） |
-| 语言 | TypeScript |
-| 样式 | Tailwind CSS |
-| 主题 | next-themes |
-| Markdown | react-markdown + remark-gfm |
-| 代码高亮 | react-syntax-highlighter |
-| 图标 | lucide-react |
+## 技术架构
 
-## 快速开始
+- **几何内核：** [OpenCascade (OCCT)](https://www.opencascade.com/) 编译为 WebAssembly，全部计算在浏览器本地完成，无需后端服务器
+- **渲染：** [Three.js](https://threejs.org/)（WebGL）
+- **语言与构建：** TypeScript + [Rspack](https://rspack.rs/)
+
+## 本地开发
 
 ```bash
 npm install
-npm run dev
+npm run dev        # 开发服务器 http://localhost:8080
+npm run build      # 生产构建（输出到 dist/）
+npm run test       # 单元测试
 ```
 
-打开 [http://localhost:3000](http://localhost:3000) 查看效果。
+插件构建需要先安装插件依赖：
 
-## 项目结构
-
-```
-src/
-├── app/              # Next.js 路由、布局、全局样式
-├── components/
-│   ├── layout/       # AppShell、主题切换
-│   ├── sidebar/      # 对话历史侧边栏
-│   └── chat/         # 聊天区、消息气泡、输入栏、Markdown 渲染
-├── context/          # ChatContext（useReducer + localStorage 持久化）
-├── hooks/            # useChat（发送 + 流式）、useAutoScroll
-├── lib/              # 流式模拟器、模拟回复、工具函数
-└── types/            # TypeScript 类型定义
+```bash
+npm install --prefix plugins/macro
+npm install --prefix plugins/visual-programming
 ```
 
-## 接入真实 AI
+## 致谢与许可
 
-当前回复来自 `src/lib/mockResponses.ts` 的随机模拟数据。若需对接真实模型，可在 `src/hooks/useChat.ts` 中将 `simulateStream` 替换为对 Anthropic API（推荐 Claude 系列模型）的流式请求。
+本项目基于开源项目 [chili3d](https://github.com/xiangechen/chili3d)（作者：仙阁）改名定制而来，遵循 **AGPL-3.0** 许可证发布，完整许可证见 [LICENSE](./LICENSE)。
