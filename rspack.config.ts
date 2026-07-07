@@ -68,7 +68,9 @@ export default defineConfig({
                 {
                     from: "./public",
                     globOptions: {
-                        ignore: ["**/**/index.html"],
+                        // Only ignore the root template index.html (handled by
+                        // HtmlRspackPlugin); keep nested pages like video/index.html.
+                        ignore: ["**/public/index.html"],
                     },
                 },
             ],
