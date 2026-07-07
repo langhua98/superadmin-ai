@@ -3,129 +3,179 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <title>视频解析播放</title>
+  <title>刷视频</title>
   <style>
     :root { color-scheme: dark; }
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    html, body { margin: 0; height: 100%; }
-    body {
-      background: #0e0e11;
-      color: #eaeaf0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #000; overflow: hidden; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+
+    /* 竖向整屏滑动容器 */
+    #feed {
+      height: 100dvh;
+      overflow-y: scroll;
+      scroll-snap-type: y mandatory;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    #feed::-webkit-scrollbar { display: none; }
+
+    .slide {
+      position: relative;
+      height: 100dvh;
+      scroll-snap-align: start;
+      scroll-snap-stop: always;
       display: flex;
-      flex-direction: column;
-      min-height: 100dvh;
+      align-items: center;
+      justify-content: center;
+      background: #000;
     }
-    header {
-      padding: 16px;
-      text-align: center;
-      border-bottom: 1px solid #23232a;
+    .slide video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
     }
-    header h1 { margin: 0; font-size: 17px; font-weight: 600; }
-    header p { margin: 4px 0 0; font-size: 12px; color: #8a8a96; }
-    .wrap { flex: 1; padding: 16px; max-width: 640px; margin: 0 auto; width: 100%; }
-    .bar { display: flex; gap: 8px; }
-    input {
-      flex: 1; min-width: 0; padding: 12px 14px; font-size: 15px;
-      background: #1a1a20; border: 1px solid #2c2c35; border-radius: 12px;
-      color: #eaeaf0; outline: none;
+
+    /* 加载 / 错误提示 */
+    .tip {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: #9a9aa5; font-size: 14px; pointer-events: none; gap: 8px;
     }
-    input:focus { border-color: #4a7dff; }
-    button {
-      padding: 0 18px; height: 46px; font-size: 15px; font-weight: 600;
-      background: #4a7dff; color: #fff; border: none; border-radius: 12px;
-      cursor: pointer; white-space: nowrap;
-    }
-    button:disabled { opacity: .5; cursor: default; }
-    .hint { margin-top: 10px; font-size: 12px; color: #8a8a96; line-height: 1.6; }
-    .status { margin-top: 16px; font-size: 14px; min-height: 20px; }
-    .status.err { color: #ff6b6b; }
-    .card {
-      margin-top: 16px; background: #16161c; border: 1px solid #23232a;
-      border-radius: 16px; overflow: hidden; display: none;
-    }
-    .card.show { display: block; }
-    video { width: 100%; display: block; background: #000; max-height: 70vh; }
-    .meta { padding: 14px 16px; }
-    .meta .title { font-size: 15px; line-height: 1.5; }
-    .meta .author { margin-top: 8px; font-size: 13px; color: #8a8a96; }
-    .meta .dl { margin-top: 12px; }
-    .meta .dl a { color: #4a7dff; font-size: 13px; text-decoration: none; }
-    .spin { display: inline-block; width: 15px; height: 15px; border: 2px solid #4a7dff;
-      border-top-color: transparent; border-radius: 50%; animation: r .8s linear infinite;
-      vertical-align: -2px; margin-right: 6px; }
+    .tip.hide { display: none; }
+    .spin { width: 22px; height: 22px; border: 3px solid #4a7dff; border-top-color: transparent;
+      border-radius: 50%; animation: r .8s linear infinite; }
     @keyframes r { to { transform: rotate(360deg); } }
+
+    /* 静音提示 */
+    .muted-badge {
+      position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,.55); color: #fff; font-size: 13px;
+      padding: 7px 14px; border-radius: 999px; pointer-events: none;
+      transition: opacity .4s; z-index: 5;
+    }
+    .muted-badge.gone { opacity: 0; }
+
+    /* 右下操作提示 */
+    .hint {
+      position: fixed; bottom: 22px; left: 0; right: 0; text-align: center;
+      color: rgba(255,255,255,.5); font-size: 12px; pointer-events: none; z-index: 5;
+    }
   </style>
 </head>
 <body>
-  <header>
-    <h1>视频解析播放</h1>
-    <p>粘贴抖音 / 快手 / TikTok 分享链接</p>
-  </header>
-  <div class="wrap">
-    <div class="bar">
-      <input id="url" type="text" placeholder="粘贴分享链接，如 https://v.douyin.com/xxx/" autocomplete="off" />
-      <button id="go">解析</button>
-    </div>
-    <div class="hint">
-      从抖音 App 点「分享 → 复制链接」，粘贴到上方即可。视频为无水印版本，可直接播放或下载。
-    </div>
-    <div id="status" class="status"></div>
-    <div id="card" class="card">
-      <video id="player" controls playsinline webkit-playsinline preload="metadata"></video>
-      <div class="meta">
-        <div id="title" class="title"></div>
-        <div id="author" class="author"></div>
-        <div class="dl"><a id="dl" href="#" target="_blank" rel="noopener">↓ 下载视频</a></div>
-      </div>
-    </div>
-  </div>
+  <div id="feed"></div>
+  <div class="muted-badge" id="mutedBadge">🔇 点击开启声音</div>
+  <div class="hint">上滑看下一个</div>
 
   <script>
-    const API = "https://langhua1998-douyin-proxy.hf.space/parse";
-    const $ = (id) => document.getElementById(id);
-    const urlEl = $("url"), goEl = $("go"), statusEl = $("status");
-    const cardEl = $("card"), playerEl = $("player"), titleEl = $("title"),
-          authorEl = $("author"), dlEl = $("dl");
-
-    function setStatus(msg, isErr) {
-      statusEl.className = "status" + (isErr ? " err" : "");
-      statusEl.innerHTML = msg;
+    // 随机短视频源（自托管 mp4，直连可播，无需后端）。
+    // 多个源轮换，某个挂了自动跳过。
+    const SOURCES = [
+      "https://tucdn.wpon.cn/api-girl/index.php?wpon=302",
+      "https://api.kuleu.com/api/MP4_xiaojiejie?type=302",
+    ];
+    let srcIndex = 0;
+    function nextVideoUrl() {
+      const base = SOURCES[srcIndex % SOURCES.length];
+      srcIndex++;
+      // 加随机参数强制每次取不同视频、避免缓存
+      const sep = base.includes("?") ? "&" : "?";
+      return base + sep + "_=" + Date.now() + Math.floor(Math.random() * 1e6);
     }
 
-    async function parse() {
-      const link = urlEl.value.trim();
-      if (!link) { setStatus("请先粘贴链接", true); return; }
-      goEl.disabled = true;
-      cardEl.classList.remove("show");
-      setStatus('<span class="spin"></span>解析中，首次唤醒服务器可能需要 30 秒…');
-      try {
-        const res = await fetch(API + "?url=" + encodeURIComponent(link));
-        const data = await res.json();
-        if (data.code !== 200 || !data.data) {
-          throw new Error(data.message || "解析失败，请检查链接");
+    const feed = document.getElementById("feed");
+    const mutedBadge = document.getElementById("mutedBadge");
+    let globalMuted = true;      // 首屏必须静音才能自动播放
+    const KEEP = 6;              // 内存里最多保留的 slide 数
+
+    function makeSlide() {
+      const slide = document.createElement("div");
+      slide.className = "slide";
+
+      const tip = document.createElement("div");
+      tip.className = "tip";
+      tip.innerHTML = '<span class="spin"></span>加载中';
+      slide.appendChild(tip);
+
+      const video = document.createElement("video");
+      video.src = nextVideoUrl();
+      video.loop = true;
+      video.muted = globalMuted;
+      video.playsInline = true;
+      video.setAttribute("webkit-playsinline", "");
+      video.setAttribute("preload", "auto");
+
+      video.addEventListener("canplay", () => tip.classList.add("hide"));
+      // 某个视频加载失败 → 换个源重试一次
+      let retried = false;
+      video.addEventListener("error", () => {
+        if (!retried) { retried = true; video.src = nextVideoUrl(); video.load(); }
+        else { tip.innerHTML = "加载失败，上滑跳过"; tip.classList.remove("hide"); }
+      });
+
+      slide.appendChild(video);
+      slide._video = video;
+      return slide;
+    }
+
+    // 初始化若干张
+    function ensureSlides(n) {
+      while (feed.children.length < n) feed.appendChild(makeSlide());
+    }
+    ensureSlides(3);
+
+    // 播放当前可见的、暂停其它的
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        const v = e.target._video;
+        if (!v) return;
+        if (e.isIntersecting && e.intersectionRatio > 0.6) {
+          v.muted = globalMuted;
+          v.play().catch(() => {});
+          // 快到底了就补新的
+          const idx = Array.prototype.indexOf.call(feed.children, e.target);
+          if (idx >= feed.children.length - 2) ensureSlides(feed.children.length + 2);
+          // 回收顶部过多的 slide，控制内存
+          while (feed.children.length > KEEP && idx > 2) {
+            feed.removeChild(feed.firstChild);
+            break;
+          }
+        } else {
+          v.pause();
         }
-        const d = data.data;
-        const vd = d.video_data || {};
-        const src = vd.nwm_video_url_HQ || vd.nwm_video_url || vd.wm_video_url_HQ || vd.wm_video_url;
-        if (!src) throw new Error("未找到可播放的视频地址（可能是图集）");
-        playerEl.src = src;
-        dlEl.href = src;
-        titleEl.textContent = d.desc || "";
-        const author = d.author && (d.author.nickname || d.author.name);
-        authorEl.textContent = author ? "作者：" + author : "";
-        cardEl.classList.add("show");
-        setStatus("解析成功 ✓");
-        playerEl.play().catch(() => {});
-      } catch (e) {
-        setStatus((e && e.message) || "解析失败", true);
-      } finally {
-        goEl.disabled = false;
-      }
-    }
+      });
+    }, { threshold: [0, 0.6, 1] });
 
-    goEl.addEventListener("click", parse);
-    urlEl.addEventListener("keydown", (e) => { if (e.key === "Enter") parse(); });
+    // 观察所有 slide（含后续新增）
+    const mo = new MutationObserver((muts) => {
+      muts.forEach((m) => m.addedNodes.forEach((n) => { if (n.classList && n.classList.contains("slide")) io.observe(n); }));
+    });
+    mo.observe(feed, { childList: true });
+    Array.from(feed.children).forEach((s) => io.observe(s));
+
+    // 点击开启/关闭声音
+    document.body.addEventListener("click", () => {
+      globalMuted = !globalMuted;
+      Array.from(feed.children).forEach((s) => { if (s._video) s._video.muted = globalMuted; });
+      if (!globalMuted) {
+        mutedBadge.classList.add("gone");
+        // 确保当前视频在播
+        Array.from(feed.children).forEach((s) => {
+          const r = s.getBoundingClientRect();
+          if (r.top >= -10 && r.top < window.innerHeight * 0.5 && s._video) s._video.play().catch(() => {});
+        });
+      } else {
+        mutedBadge.textContent = "🔇 点击开启声音";
+        mutedBadge.classList.remove("gone");
+      }
+    });
+
+    // 首个视频尝试自动播放
+    window.addEventListener("load", () => {
+      const first = feed.children[0];
+      if (first && first._video) first._video.play().catch(() => {});
+    });
   </script>
 </body>
 </html>
