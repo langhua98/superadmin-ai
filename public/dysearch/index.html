@@ -44,9 +44,10 @@
 <body>
   <div id="login">
     <div class="spin" id="loginSpin"></div>
-    <h2 id="loginTitle">正在唤醒服务…</h2>
+    <h2 id="loginTitle">正在启动服务…</h2>
     <img id="qr" style="display:none" alt="登录二维码" />
-    <p id="loginHint">首次打开需等待约 30 秒冷启动</p>
+    <p id="loginHint">首次打开要唤醒海外服务器，约 30-60 秒，请耐心等待</p>
+    <button id="retry" style="display:none;padding:10px 22px;font-size:15px;background:#4a7dff;color:#fff;border:none;border-radius:10px;">重试</button>
   </div>
 
   <div id="app">
@@ -68,10 +69,31 @@
     const $ = (id) => document.getElementById(id);
 
     // ---- 登录 ----
+    let elapsedTimer = null;
+    function startElapsed() {
+      let s = 0;
+      $("loginTitle").textContent = "正在启动服务… 0s";
+      elapsedTimer = setInterval(() => {
+        s += 1;
+        $("loginTitle").textContent = "正在启动服务… " + s + "s";
+      }, 1000);
+    }
+    function stopElapsed() { if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; } }
+
     async function initLogin() {
+      $("retry").style.display = "none";
+      $("loginSpin").style.display = "block";
+      $("qr").style.display = "none";
+      startElapsed();
       try {
-        const r = await fetch(API + "/login/start");
+        // 先唤醒（快），让后续的启动浏览器请求跑在已唤醒的服务上
+        await fetch(API + "/", { cache: "no-store" }).catch(() => {});
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 90000);
+        const r = await fetch(API + "/login/start", { signal: ctrl.signal, cache: "no-store" });
+        clearTimeout(t);
         const d = await r.json();
+        stopElapsed();
         if (d.already_logged_in) { showApp(); return; }
         if (d.image) {
           $("loginSpin").style.display = "none";
@@ -80,14 +102,17 @@
           $("loginHint").textContent = "打开抖音 App → 右上角「+」→ 扫一扫";
           pollLogin();
         } else {
-          $("loginTitle").textContent = "获取二维码失败，请刷新重试";
+          throw new Error(d.message || "未获取到二维码");
         }
       } catch (e) {
+        stopElapsed();
         $("loginSpin").style.display = "none";
-        $("loginTitle").textContent = "连接失败，请刷新重试";
-        $("loginHint").textContent = String(e.message || e);
+        $("loginTitle").textContent = "启动失败";
+        $("loginHint").textContent = (e.name === "AbortError" ? "等待超时（服务器较慢）" : String(e.message || e)) + "，点重试";
+        $("retry").style.display = "inline-block";
       }
     }
+    $("retry").onclick = initLogin;
 
     async function pollLogin() {
       try {
