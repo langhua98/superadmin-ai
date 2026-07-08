@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>视频搜索</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; background: #0e0e11; color: #eaeaf0;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    body { display: flex; flex-direction: column; min-height: 100dvh; }
+
+    /* 登录层 */
+    #login { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; gap: 14px; }
+    #login h2 { font-size: 18px; font-weight: 600; }
+    #login p { font-size: 13px; color: #8a8a96; line-height: 1.6; }
+    #qr { width: 200px; height: 200px; background: #fff; border-radius: 12px; padding: 8px; object-fit: contain; }
+    .spin { width: 26px; height: 26px; border: 3px solid #4a7dff; border-top-color: transparent; border-radius: 50%; animation: r .8s linear infinite; }
+    @keyframes r { to { transform: rotate(360deg); } }
+
+    /* 搜索栏 */
+    #app { flex: 1; display: none; flex-direction: column; min-height: 0; }
+    .bar { display: flex; gap: 8px; padding: 12px; border-bottom: 1px solid #23232a; }
+    .bar input { flex: 1; min-width: 0; padding: 11px 14px; font-size: 15px; background: #1a1a20; border: 1px solid #2c2c35; border-radius: 10px; color: #eaeaf0; outline: none; }
+    .bar input:focus { border-color: #4a7dff; }
+    .bar button { padding: 0 16px; font-size: 15px; font-weight: 600; background: #fe2c55; color: #fff; border: none; border-radius: 10px; }
+    .status { padding: 8px 14px; font-size: 12px; color: #8a8a96; min-height: 18px; }
+
+    /* 结果网格 */
+    #grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 8px; align-content: start; }
+    .card { background: #16161c; border-radius: 10px; overflow: hidden; cursor: pointer; }
+    .card .thumb { width: 100%; aspect-ratio: 3/4; object-fit: cover; background: #23232a; display: block; }
+    .card .cap { padding: 8px; font-size: 12px; line-height: 1.4; }
+    .card .cap .desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .card .cap .author { color: #8a8a96; margin-top: 4px; }
+
+    /* 播放层 */
+    #player { position: fixed; inset: 0; background: #000; display: none; z-index: 50; }
+    #player video { width: 100%; height: 100%; object-fit: contain; }
+    #player .close { position: absolute; top: 14px; left: 14px; width: 40px; height: 40px; border-radius: 50%; background: rgba(0,0,0,.5); color: #fff; border: none; font-size: 20px; }
+  </style>
+</head>
+<body>
+  <div id="login">
+    <div class="spin" id="loginSpin"></div>
+    <h2 id="loginTitle">正在唤醒服务…</h2>
+    <img id="qr" style="display:none" alt="登录二维码" />
+    <p id="loginHint">首次打开需等待约 30 秒冷启动</p>
+  </div>
+
+  <div id="app">
+    <div class="bar">
+      <input id="kw" type="text" placeholder="搜索抖音视频，如 猫咪 / 美食" autocomplete="off" />
+      <button id="go">搜索</button>
+    </div>
+    <div class="status" id="status"></div>
+    <div id="grid"></div>
+  </div>
+
+  <div id="player">
+    <button class="close" id="close">✕</button>
+    <video id="video" controls playsinline webkit-playsinline></video>
+  </div>
+
+  <script>
+    const API = "https://langhua1998-douyin-proxy.hf.space";
+    const $ = (id) => document.getElementById(id);
+
+    // ---- 登录 ----
+    async function initLogin() {
+      try {
+        const r = await fetch(API + "/login/start");
+        const d = await r.json();
+        if (d.already_logged_in) { showApp(); return; }
+        if (d.image) {
+          $("loginSpin").style.display = "none";
+          $("loginTitle").textContent = "抖音扫码登录";
+          $("qr").src = d.image; $("qr").style.display = "block";
+          $("loginHint").textContent = "打开抖音 App → 右上角「+」→ 扫一扫";
+          pollLogin();
+        } else {
+          $("loginTitle").textContent = "获取二维码失败，请刷新重试";
+        }
+      } catch (e) {
+        $("loginSpin").style.display = "none";
+        $("loginTitle").textContent = "连接失败，请刷新重试";
+        $("loginHint").textContent = String(e.message || e);
+      }
+    }
+
+    async function pollLogin() {
+      try {
+        const r = await fetch(API + "/login/status");
+        const d = await r.json();
+        if (d.logged_in) { showApp(); return; }
+      } catch (e) {}
+      setTimeout(pollLogin, 2500);
+    }
+
+    function showApp() {
+      $("login").style.display = "none";
+      $("app").style.display = "flex";
+    }
+
+    // ---- 搜索 ----
+    async function search() {
+      const kw = $("kw").value.trim();
+      if (!kw) return;
+      $("status").textContent = "搜索中…";
+      $("grid").innerHTML = "";
+      try {
+        const r = await fetch(API + "/bsearch?keyword=" + encodeURIComponent(kw));
+        const d = await r.json();
+        if (d.code !== 200) throw new Error(d.message || "搜索失败");
+        $("status").textContent = "找到 " + d.count + " 个结果";
+        for (const v of d.data) renderCard(v);
+        if (!d.count) $("status").textContent = "没搜到结果，换个词试试";
+      } catch (e) {
+        $("status").textContent = "搜索失败：" + (e.message || e);
+      }
+    }
+
+    function renderCard(v) {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML =
+        '<img class="thumb" loading="lazy" referrerpolicy="no-referrer" src="' + (v.cover || "") + '">' +
+        '<div class="cap"><div class="desc">' + esc(v.desc || "无标题") + '</div>' +
+        '<div class="author">@' + esc(v.author || "") + '</div></div>';
+      card.onclick = () => play(v.play_url);
+      $("grid").appendChild(card);
+    }
+
+    function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+    // ---- 播放 ----
+    function play(url) {
+      const src = API + "/stream?url=" + encodeURIComponent(url);
+      $("video").src = src;
+      $("player").style.display = "block";
+      $("video").play().catch(() => {});
+    }
+    $("close").onclick = () => {
+      $("player").style.display = "none";
+      $("video").pause(); $("video").src = "";
+    };
+
+    $("go").onclick = search;
+    $("kw").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
+
+    initLogin();
+  </script>
+</body>
+</html>
