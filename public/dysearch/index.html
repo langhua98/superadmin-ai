@@ -90,6 +90,17 @@
     const API = "https://langhua1998-douyin-proxy.hf.space";
     const $ = (id) => document.getElementById(id);
 
+    // 安全请求：非 JSON / 出错时抛出可读信息，避免 iOS "string did not match" 崩溃
+    async function getJSON(url, opts) {
+      const r = await fetch(url, Object.assign({ cache: "no-store" }, opts || {}));
+      const text = await r.text();
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        throw new Error("服务器返回异常(HTTP " + r.status + ")：" + text.slice(0, 80));
+      }
+    }
+
     // ---- 短信验证码登录 ----
     function err(msg) { $("loginErr").textContent = msg || ""; }
 
@@ -106,10 +117,9 @@
         await fetch(API + "/", { cache: "no-store" }).catch(() => {});
         const ctrl = new AbortController();
         const to = setTimeout(() => ctrl.abort(), 90000);
-        const r = await fetch(API + "/login/sms/send?phone=" + encodeURIComponent(phone),
-          { signal: ctrl.signal, cache: "no-store" });
+        const d = await getJSON(API + "/login/sms/send?phone=" + encodeURIComponent(phone),
+          { signal: ctrl.signal });
         clearTimeout(to);
-        const d = await r.json();
         clearInterval(tick);
         if (d.already_logged_in) { showApp(); return; }
         if (d.code !== 200) throw new Error(d.message || "发送失败");
@@ -135,8 +145,7 @@
       const btn = $("doLogin");
       btn.disabled = true; btn.textContent = "登录中…";
       try {
-        const r = await fetch(API + "/login/sms/verify?code=" + encodeURIComponent(code), { cache: "no-store" });
-        const d = await r.json();
+        const d = await getJSON(API + "/login/sms/verify?code=" + encodeURIComponent(code));
         if (d.logged_in) { showApp(); return; }
         if (d.captcha) { showCaptcha(d); return; }
         let m = "登录未成功";
@@ -209,8 +218,7 @@
         const realDx = cur * (capState.real / capState.disp);
         $("capStatus").textContent = "验证中…";
         try {
-          const r = await fetch(API + "/captcha/drag?dx=" + Math.round(realDx), { cache: "no-store" });
-          const d = await r.json();
+          const d = await getJSON(API + "/captcha/drag?dx=" + Math.round(realDx));
           if (d.logged_in) { showApp(); return; }
           if (d.captcha && d.image) { $("capStatus").textContent = "没对齐，再试一次"; showCaptcha(d); }
           else { $("capStatus").textContent = "验证未通过，点「换一张」重试"; }
@@ -227,8 +235,7 @@
     $("capRefresh").onclick = async () => {
       $("capStatus").textContent = "刷新中…";
       try {
-        const r = await fetch(API + "/captcha/state", { cache: "no-store" });
-        const d = await r.json();
+        const d = await getJSON(API + "/captcha/state");
         if (d.logged_in) { showApp(); return; }
         if (d.captcha && d.image) showCaptcha(d);
         else $("capStatus").textContent = "没有检测到滑块，返回重新登录";
@@ -242,8 +249,7 @@
       $("status").textContent = "搜索中…";
       $("grid").innerHTML = "";
       try {
-        const r = await fetch(API + "/bsearch?keyword=" + encodeURIComponent(kw));
-        const d = await r.json();
+        const d = await getJSON(API + "/bsearch?keyword=" + encodeURIComponent(kw));
         if (d.code !== 200) throw new Error(d.message || "搜索失败");
         $("status").textContent = "找到 " + d.count + " 个结果";
         for (const v of d.data) renderCard(v);
@@ -284,8 +290,7 @@
     // 打开即预热服务器 + 检查是否已登录（服务器未重启则免登录）
     (async () => {
       try {
-        const r = await fetch(API + "/login/check", { cache: "no-store" });
-        const d = await r.json();
+        const d = await getJSON(API + "/login/check");
         if (d.logged_in) showApp();
       } catch (e) {}
     })();
