@@ -124,7 +124,14 @@
         const r = await fetch(API + "/login/sms/verify?code=" + encodeURIComponent(code), { cache: "no-store" });
         const d = await r.json();
         if (d.logged_in) { showApp(); return; }
-        err("登录未成功，检查验证码是否正确");
+        let m = "登录未成功";
+        if (d.hint) m += "：" + d.hint;
+        else if (d.login_api && d.login_api.length) {
+          const j = d.login_api[d.login_api.length - 1].json;
+          const desc = j && (j.description || j.message || (j.data && j.data.description));
+          if (desc) m += "：" + desc;
+        } else m += "（可能验证码已过期，请重新获取）";
+        err(m);
       } catch (e) {
         err(String(e.message || e));
       } finally {
