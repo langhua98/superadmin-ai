@@ -67,6 +67,20 @@
     <div id="grid"></div>
   </div>
 
+  <!-- 滑块验证层 -->
+  <div id="captcha" style="position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;z-index:60;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px;">
+    <p style="color:#eaeaf0;font-size:15px;">拖动下方滑块，让缺口对齐</p>
+    <div id="capWrap" style="position:relative;">
+      <img id="capImg" style="display:block;border-radius:8px;max-width:90vw;" />
+      <div id="capGuide" style="position:absolute;top:0;bottom:0;width:2px;background:#fe2c55;left:0;pointer-events:none;opacity:.8;"></div>
+    </div>
+    <div id="capTrack" style="position:relative;height:44px;background:#1a1a20;border:1px solid #2c2c35;border-radius:22px;touch-action:none;">
+      <div id="capThumb" style="position:absolute;left:0;top:0;width:44px;height:44px;background:#fe2c55;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;touch-action:none;">›</div>
+    </div>
+    <p id="capStatus" style="color:#8a8a96;font-size:13px;min-height:16px;"></p>
+    <button id="capRefresh" style="padding:8px 18px;font-size:14px;background:#333;color:#fff;border:none;border-radius:10px;">换一张</button>
+  </div>
+
   <div id="player">
     <button class="close" id="close">✕</button>
     <video id="video" controls playsinline webkit-playsinline></video>
@@ -124,6 +138,7 @@
         const r = await fetch(API + "/login/sms/verify?code=" + encodeURIComponent(code), { cache: "no-store" });
         const d = await r.json();
         if (d.logged_in) { showApp(); return; }
+        if (d.captcha) { showCaptcha(d); return; }
         let m = "登录未成功";
         if (d.hint) m += "：" + d.hint;
         else if (d.login_api && d.login_api.length) {
@@ -145,7 +160,80 @@
     function showApp() {
       $("login").style.display = "none";
       $("app").style.display = "flex";
+      $("captcha").style.display = "none";
     }
+
+    // ---- 滑块验证 ----
+    let capState = null; // { realWidth, dispWidth }
+    function showCaptcha(payload) {
+      $("captcha").style.display = "flex";
+      $("capStatus").textContent = "";
+      const img = $("capImg");
+      img.onload = () => {
+        const disp = img.clientWidth;         // displayed px
+        const real = (payload.captcha_box && payload.captcha_box.width) || img.naturalWidth;
+        capState = { real, disp };
+        // track same width as image
+        $("capTrack").style.width = disp + "px";
+        resetThumb();
+      };
+      img.src = payload.image;
+    }
+    function resetThumb() {
+      $("capThumb").style.left = "0px";
+      $("capGuide").style.left = "22px";
+    }
+
+    (function setupDrag() {
+      const thumb = $("capThumb"), track = $("capTrack"), guide = $("capGuide");
+      let dragging = false, startX = 0, cur = 0, maxX = 0;
+      function down(e) {
+        dragging = true;
+        maxX = track.clientWidth - thumb.clientWidth;
+        startX = (e.touches ? e.touches[0].clientX : e.clientX) - cur;
+        e.preventDefault();
+      }
+      function move(e) {
+        if (!dragging) return;
+        const cx = e.touches ? e.touches[0].clientX : e.clientX;
+        cur = Math.max(0, Math.min(maxX, cx - startX));
+        thumb.style.left = cur + "px";
+        guide.style.left = (cur + 22) + "px";
+        e.preventDefault();
+      }
+      async function up() {
+        if (!dragging) return;
+        dragging = false;
+        if (!capState || cur < 5) return;
+        // convert displayed px -> real captcha px
+        const realDx = cur * (capState.real / capState.disp);
+        $("capStatus").textContent = "验证中…";
+        try {
+          const r = await fetch(API + "/captcha/drag?dx=" + Math.round(realDx), { cache: "no-store" });
+          const d = await r.json();
+          if (d.logged_in) { showApp(); return; }
+          if (d.captcha && d.image) { $("capStatus").textContent = "没对齐，再试一次"; showCaptcha(d); }
+          else { $("capStatus").textContent = "验证未通过，点「换一张」重试"; }
+        } catch (e) { $("capStatus").textContent = "出错：" + (e.message || e); }
+      }
+      thumb.addEventListener("mousedown", down);
+      thumb.addEventListener("touchstart", down, { passive: false });
+      window.addEventListener("mousemove", move);
+      window.addEventListener("touchmove", move, { passive: false });
+      window.addEventListener("mouseup", up);
+      window.addEventListener("touchend", up);
+    })();
+
+    $("capRefresh").onclick = async () => {
+      $("capStatus").textContent = "刷新中…";
+      try {
+        const r = await fetch(API + "/captcha/state", { cache: "no-store" });
+        const d = await r.json();
+        if (d.logged_in) { showApp(); return; }
+        if (d.captcha && d.image) showCaptcha(d);
+        else $("capStatus").textContent = "没有检测到滑块，返回重新登录";
+      } catch (e) { $("capStatus").textContent = String(e.message || e); }
+    };
 
     // ---- 搜索 ----
     async function search() {
