@@ -193,8 +193,14 @@
     $("go").onclick = search;
     $("kw").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
 
-    // 打开即预热服务器，缩短首次「获取验证码」等待
-    fetch(API + "/", { cache: "no-store" }).catch(() => {});
+    // 打开即预热服务器 + 检查是否已登录（服务器未重启则免登录）
+    (async () => {
+      try {
+        const r = await fetch(API + "/login/check", { cache: "no-store" });
+        const d = await r.json();
+        if (d.logged_in) showApp();
+      } catch (e) {}
+    })();
   </script>
 </body>
 </html>
