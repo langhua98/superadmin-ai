@@ -226,8 +226,8 @@
       stopAuto(); $("gen").disabled = true;
       setStatus('<span class="spin"></span>连接云端 GPU…');
       try {
-        const { Client } = await import("https://esm.sh/@gradio/client@1");
-        const app = await Client.connect(HF_SPACE);
+        const { Client } = await import("./vendor/gradio-client.js");
+        const app = await Client.connect("https://langhua1998-room-splat.hf.space");
         setStatus('<span class="spin"></span>上传照片、重建中…（冷启动可能 1~3 分钟）');
         const files = shots.map((s, i) => new File([s.blob], `img_${i}.jpg`, { type: "image/jpeg" }));
         const sub = app.submit("/process", [files]);
@@ -253,7 +253,7 @@
     async function loadSplat(plyUrl) {
       $("view3d").disabled = true; $("view3d").textContent = "加载中…";
       try {
-        const GS = await import("https://esm.sh/@mkkellogg/gaussian-splats-3d@0.4");
+        const { GS } = await import("./vendor/gsplat.js");
         const el = $("splat"); el.style.minHeight = "300px";
         const viewer = new GS.Viewer({ rootElement: el, selfDrivenMode: true, sharedMemoryForWorkers: false });
         await viewer.addSplatScene(plyUrl, { format: GS.SceneFormat.Ply, showLoadingUI: true });
