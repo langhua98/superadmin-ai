@@ -163,12 +163,18 @@
     const cfg = () => MODES[mode];
 
     // ---------- 相机 ----------
+    let camStream = null;
     async function initCam() {
       try {
         const s = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
-        $("cam").srcObject = s;
+        camStream = s; $("cam").srcObject = s;
       } catch (e) { setStatus("无法打开相机：" + (e.message || e) + "（需 HTTPS + 授权）", true); }
+    }
+    // 释放摄像头(关掉相机指示灯、省电);建模开始后不再需要取景
+    function stopCam() {
+      const v = $("cam");
+      if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; v.srcObject = null; }
     }
     function capture() {
       const v = $("cam"); if (!v.videoWidth) return;
@@ -329,7 +335,7 @@
     }
     $("gen").onclick = async () => {
       if (shots.length < 3) return;
-      stopAuto(); $("gen").disabled = true;
+      stopAuto(); stopCam(); $("gen").disabled = true;   // 建模开始 → 释放摄像头
       try {
         const use = pickEven(shots, MAX_UPLOAD);
         setProg(1, 8);
@@ -374,6 +380,7 @@
         $("prog").style.display = "none";
         setStatus("建模失败：" + (e.message || e), true);
         $("gen").disabled = false;
+        if (!camStream) initCam();          // 失败 → 恢复取景,方便补拍/重试
       }
     };
 
