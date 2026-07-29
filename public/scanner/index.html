@@ -169,10 +169,10 @@
         tip: "<b>物体模式</b>：点「自动拍摄」并授权方向感应，然后<b>端着手机绕物体走一圈、镜头朝里</b>，对准没拍过的角度会自动咔嚓；下方圆环显示已覆盖的方位。<b>8~12 张均匀视角就够</b>，不必贪多。物体要有纹理、光线均匀；纯色墙/玻璃/反光易失败。",
       },
       room: {
-        ring: true, cap: 26, rec: "24", up: 16,
+        ring: true, cap: 32, rec: "24", up: 16,
         start: "站房间中央点「自动拍摄」：平视 / 仰 / 俯各转一圈",
-        count: "（三圈共 24 张，自动挑 16 张建模）",
-        tip: "<b>房间模式</b>：自动用 <b>0.5× 超广角</b>（左上角可切）。站在房间中央，点「自动拍摄」并授权方向感应，按提示转<b>三圈</b>：① 平视转一圈拍墙面 → ② <b>抬高手机约 40°</b> 再转一圈拍天花板 → ③ <b>压低约 40°</b> 转一圈拍地面。跟着屏幕上的「抬高/压低」提示走即可。转角、家具、有纹理的墙效果好；纯白墙、大玻璃、反光易破洞，小房间比大房间稳。",
+        count: "（三圈 24 张 + 可补拍细节，挑 16 张建模）",
+        tip: "<b>房间模式</b>：自动用 <b>0.5× 超广角</b>（左上角可切）。站在房间中央，点「自动拍摄」并授权方向感应，按提示转<b>三圈</b>：① 平视转一圈拍墙面 → ② <b>抬高手机约 40°</b> 再转一圈拍天花板 → ③ <b>压低约 40°</b> 转一圈拍地面。<br><b>想看清某个区域（如桌面）？</b>三圈拍完后<b>走近它，用白色快门补拍 2~6 张</b>（缩略图带橙框）——细节照会优先送去建模，和全景<b>合在同一个模型里</b>。转角、家具、有纹理的墙效果好；纯白墙、大玻璃、反光易破洞。",
       },
       street: {
         ring: false, cap: 16, rec: "10~12", interval: 2500, up: 12,
@@ -232,17 +232,18 @@
     $("lens").onclick = () => useLens(curLens === "ultra" ? "wide" : "ultra");
     // 释放摄像头(关掉相机指示灯、省电);建模开始后不再需要取景
     function stopCam() { stopTracks(); $("cam").srcObject = null; }
-    function capture() {
+    function capture(manual) {
       const v = $("cam"); if (!v.videoWidth) return;
       const c = document.createElement("canvas"); c.width = v.videoWidth; c.height = v.videoHeight;
       c.getContext("2d").drawImage(v, 0, 0);
-      c.toBlob((blob) => { shots.push({ blob, url: URL.createObjectURL(blob) }); renderShots(); flash(); }, "image/jpeg", 0.9);
+      // manual=快门键拍的「细节照」,上传时优先保留(合入同一模型)
+      c.toBlob((blob) => { shots.push({ blob, url: URL.createObjectURL(blob), manual: !!manual }); renderShots(); flash(); }, "image/jpeg", 0.9);
     }
     function flash() { const f = $("flash"); f.classList.add("on"); setTimeout(() => f.classList.remove("on"), 90); }
     function renderShots() {
       const el = $("shots");
       if (!shots.length) el.innerHTML = '<span class="empty">还没拍照片</span>';
-      else { el.innerHTML = ""; shots.forEach(s => { const i = new Image(); i.src = s.url; el.appendChild(i); }); el.scrollLeft = el.scrollWidth; }
+      else { el.innerHTML = ""; shots.forEach(s => { const i = new Image(); i.src = s.url; if (s.manual) { i.style.outline = "2px solid #ffb14a"; i.style.outlineOffset = "-2px"; } el.appendChild(i); }); el.scrollLeft = el.scrollWidth; }
       $("count").textContent = shots.length + " 张" + cfg().count;
       $("counter").textContent = shots.length + " 张";
       $("gen").disabled = shots.length < 3;
@@ -284,7 +285,7 @@
       const n = covered.length;
       const done = covered.filter(Boolean).length;
       if (mode === "room") {
-        if (roomDone) { $("guide").textContent = "三圈拍完 ✓ 点「开始建模」"; return; }
+        if (roomDone) { $("guide").textContent = "三圈拍完 ✓ 可走近重点区域用快门补拍，或点开始建模"; return; }
         const ph = ROOM_PHASES[roomPhase];
         if (autoOn && pitch != null) {
           if (pitch < ph.min) { $("guide").textContent = `⬆ 抬高手机（${ph.name}）`; return; }
@@ -390,7 +391,7 @@
     document.querySelectorAll("#modes .chip").forEach(c => { c.onclick = () => setMode(c.dataset.mode); });
 
     $("auto").onclick = () => autoOn ? stopAuto() : startAuto();
-    $("shutter").onclick = capture;
+    $("shutter").onclick = () => capture(true);
     $("clear").onclick = () => { stopAuto(); shots.forEach(s => URL.revokeObjectURL(s.url)); shots.length = 0; covered = new Array(secN()).fill(false); roomPhase = 0; roomDone = false; updateRing(); renderShots(); setStatus(""); };
     $("again").onclick = () => location.reload();
 
@@ -412,11 +413,22 @@
       if (shots.length < 3) return;
       stopAuto(); stopCam(); $("gen").disabled = true;   // 建模开始 → 释放摄像头
       try {
-        const use = pickEven(shots, cfg().up || MAX_UPLOAD);
+        // 挑选:快门拍的细节照优先(最多 8 张),其余名额从自动环拍里等距挑 → 同一模型里全景+细节
+        const up = cfg().up || MAX_UPLOAD;
+        const detail = shots.filter(s => s.manual), auto = shots.filter(s => !s.manual);
+        let use, label;
+        if (!detail.length || !auto.length) {
+          use = pickEven(shots, up);
+          label = shots.length > use.length ? `从 ${shots.length} 张里挑了 ${use.length} 张最均匀的上传…` : "上传照片…";
+        } else {
+          const dKeep = pickEven(detail, Math.min(detail.length, 8));
+          const rKeep = pickEven(auto, up - dKeep.length);
+          const keep = new Set([...dKeep, ...rKeep]);
+          use = shots.filter(s => keep.has(s));       // 保持时间序
+          label = `上传 ${use.length} 张（全景 ${rKeep.length} + 细节 ${dKeep.length}）…`;
+        }
         setProg(1, 8);
-        setStatus('<span class="spin"></span>' + (shots.length > use.length
-          ? `从 ${shots.length} 张里挑了 ${use.length} 张最均匀的上传（少而匀 → 更快更稳）…`
-          : "上传照片…"));
+        setStatus('<span class="spin"></span>' + label);
         const fd = new FormData();
         use.forEach((s, i) => fd.append("files", new File([s.blob], `img_${i}.jpg`, { type: "image/jpeg" })));
         const sub = await fetch(RELAY + "/submit", { method: "POST", body: fd });
