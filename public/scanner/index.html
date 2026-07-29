@@ -158,24 +158,24 @@
     const secN = () => (mode === "room" ? ROOM_N : N);
 
     // ---------- 场景模式 ----------
-    // 高斯泼溅(InstantSplat)是稀疏视图重建,GPU 单次上限 150s、耗时随图数≈O(n²)。
-    // 8~12 张均匀视角最稳;拍再多也只会等距挑 MAX_UPLOAD 张送去建模。
+    // 高斯泼溅(InstantSplat)是稀疏视图重建,耗时/显存随图数≈O(n²),图太多会 GPU 中止。
+    // 均匀视角最稳;拍再多也只会等距挑 up(每模式上限)张送去建模。
     const MAX_UPLOAD = 12;
     const MODES = {
       object: {
-        ring: true, cap: 16, rec: "8~12",
+        ring: true, cap: 16, rec: "8~12", up: 12,
         start: "对准物体，点「自动拍摄」开始",
         count: "（均匀 8~12 张即可）",
         tip: "<b>物体模式</b>：点「自动拍摄」并授权方向感应，然后<b>端着手机绕物体走一圈、镜头朝里</b>，对准没拍过的角度会自动咔嚓；下方圆环显示已覆盖的方位。<b>8~12 张均匀视角就够</b>，不必贪多。物体要有纹理、光线均匀；纯色墙/玻璃/反光易失败。",
       },
       room: {
-        ring: true, cap: 26, rec: "24",
+        ring: true, cap: 26, rec: "24", up: 16,
         start: "站房间中央点「自动拍摄」：平视 / 仰 / 俯各转一圈",
-        count: "（三圈共 24 张，自动挑 12 张建模）",
+        count: "（三圈共 24 张，自动挑 16 张建模）",
         tip: "<b>房间模式</b>：自动用 <b>0.5× 超广角</b>（左上角可切）。站在房间中央，点「自动拍摄」并授权方向感应，按提示转<b>三圈</b>：① 平视转一圈拍墙面 → ② <b>抬高手机约 40°</b> 再转一圈拍天花板 → ③ <b>压低约 40°</b> 转一圈拍地面。跟着屏幕上的「抬高/压低」提示走即可。转角、家具、有纹理的墙效果好；纯白墙、大玻璃、反光易破洞，小房间比大房间稳。",
       },
       street: {
-        ring: false, cap: 16, rec: "10~12", interval: 2500,
+        ring: false, cap: 16, rec: "10~12", interval: 2500, up: 12,
         start: "边走边拍：点「自动拍摄」每 2.5 秒一张",
         count: "（均匀 10~12 张即可）",
         tip: "<b>街道 / 户外模式</b>：自动用 <b>0.5× 超广角</b>（左上角可切）。点「自动拍摄」后<b>边走边拍、镜头朝前或朝建筑</b>，每 2.5 秒自动一张；保持向前、相邻两张要有重叠。<b>10~12 张、范围别贪大</b>——单个建筑立面、一小段街景效果最好，整条大街会打折、易破洞。",
@@ -412,9 +412,9 @@
       if (shots.length < 3) return;
       stopAuto(); stopCam(); $("gen").disabled = true;   // 建模开始 → 释放摄像头
       try {
-        const use = pickEven(shots, MAX_UPLOAD);
+        const use = pickEven(shots, cfg().up || MAX_UPLOAD);
         setProg(1, 8);
-        setStatus('<span class="spin"></span>' + (shots.length > MAX_UPLOAD
+        setStatus('<span class="spin"></span>' + (shots.length > use.length
           ? `从 ${shots.length} 张里挑了 ${use.length} 张最均匀的上传（少而匀 → 更快更稳）…`
           : "上传照片…"));
         const fd = new FormData();
