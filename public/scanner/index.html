@@ -437,10 +437,10 @@
         if (info.error) throw new Error(info.error);
         const jobId = info.job_id;
 
-        const EST = 90 + 8 * use.length;             // 按张数估算(热机);冷启动更久时条会停在 ~92%
+        const EST = 120 + 10 * use.length;           // 按张数估算(热机,2000 迭代);冷启动更久时条会停在 ~92%
         const t0 = Date.now();
         setProg(2, 15);
-        while (Date.now() - t0 < 600000) {           // 最多 10 分钟
+        while (Date.now() - t0 < 900000) {           // 最多 15 分钟(高质量+可能冷启动)
           await new Promise(r => setTimeout(r, 3000));
           let st;
           try { st = await (await fetch(RELAY + "/status/" + jobId, { cache: "no-store" })).json(); }
@@ -460,7 +460,7 @@
           const pct = Math.min(92, 15 + (secs / EST) * 77);
           const cold = secs > EST;
           setProg(3, pct);
-          setStatus('<span class="spin"></span>重建中… ' + secs + 's' + (cold ? '（冷启动较慢，请再等等，勿关页面）' : '（约 2 分钟，勿关页面）'));
+          setStatus('<span class="spin"></span>重建中… ' + secs + 's' + (cold ? '（冷启动较慢，请再等等，勿关页面）' : '（高质量模式约 4~5 分钟，勿关页面）'));
         }
         throw new Error("超时，请重试(可减少张数或换有纹理的物体)");
       } catch (e) {
