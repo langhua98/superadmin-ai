@@ -46,6 +46,14 @@
     button.ghost { padding: 8px 12px; font-size: 13px; background: #23232a; color: #eaeaf0; border: none; border-radius: 10px; }
     .status { padding: 0 16px 8px; font-size: 13px; color: #8a8a96; min-height: 18px; text-align: center; }
     .status.err { color: #ff6b6b; }
+    /* 进度条 */
+    #prog { display: none; margin: 0 16px 12px; }
+    #prog .track { height: 8px; background: #23232a; border-radius: 999px; overflow: hidden; }
+    #prog .fill { height: 100%; width: 0%; background: linear-gradient(90deg,#4a7dff,#21c07a); border-radius: 999px; transition: width .5s ease; }
+    #prog .steps { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: #6a6a76; }
+    #prog .steps span.on { color: #4a7dff; font-weight: 600; }
+    /* 查看器操作提示 */
+    #splatHint { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.6); color: #eaeaf0; font-size: 12px; padding: 6px 14px; border-radius: 999px; pointer-events: none; z-index: 5; transition: opacity .6s; }
     .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid #4a7dff; border-top-color: transparent; border-radius: 50%; animation: r .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
     @keyframes r { to { transform: rotate(360deg); } }
 
@@ -83,6 +91,12 @@
       <button class="primary" id="gen" disabled>开始建模</button>
     </div>
     <div class="status" id="status"></div>
+    <div id="prog">
+      <div class="track"><div class="fill" id="progFill"></div></div>
+      <div class="steps">
+        <span id="s1">上传</span><span id="s2">启动GPU</span><span id="s3">重建中</span><span id="s4">完成</span>
+      </div>
+    </div>
     <div class="tip">
       <b>自动模式</b>：点「自动拍摄」并授权方向感应，然后<b>端着手机绕物体走一圈</b>，对准没拍过的角度会自动咔嚓；下方圆环显示哪些角度已覆盖、缺口在哪。转完一圈可<b>抬高/放低手机再转一圈</b>补上下。<br>
       物体要有纹理、光线均匀；纯色墙/玻璃/反光易失败。首次建模冷启动约 1~3 分钟。
@@ -222,11 +236,16 @@
 
     // ---------- 建模(经中转 Space:浏览器→中转带token调GPU→轮询取结果)----------
     const RELAY = "https://langhua1998-splat-relay.hf.space";
+    function setProg(step, pct) {
+      $("prog").style.display = "block";
+      $("progFill").style.width = Math.max(0, Math.min(100, pct)) + "%";
+      [1, 2, 3, 4].forEach(i => $("s" + i).classList.toggle("on", i === step));
+    }
     $("gen").onclick = async () => {
       if (shots.length < 3) return;
       stopAuto(); $("gen").disabled = true;
       try {
-        setStatus('<span class="spin"></span>上传照片…');
+        setProg(1, 8); setStatus('<span class="spin"></span>上传照片…');
         const fd = new FormData();
         shots.forEach((s, i) => fd.append("files", new File([s.blob], `img_${i}.jpg`, { type: "image/jpeg" })));
         const sub = await fetch(RELAY + "/submit", { method: "POST", body: fd });
@@ -235,22 +254,29 @@
         if (info.error) throw new Error(info.error);
         const jobId = info.job_id;
 
+        const EST = 130;                             // 热机约 130s;冷启动更久时条会停在 ~92%
         const t0 = Date.now();
-        while (Date.now() - t0 < 600000) {          // 最多 10 分钟
-          await new Promise(r => setTimeout(r, 4000));
+        setProg(2, 15);
+        while (Date.now() - t0 < 600000) {           // 最多 10 分钟
+          await new Promise(r => setTimeout(r, 3000));
           let st;
           try { st = await (await fetch(RELAY + "/status/" + jobId, { cache: "no-store" })).json(); }
-          catch (e) { continue; }                   // 单次轮询失败不致命,继续
+          catch (e) { continue; }                    // 单次轮询失败不致命,继续
           const secs = Math.round((Date.now() - t0) / 1000);
           if (st.state === "done") {
+            setProg(4, 100);
             showResult([st.video_url ? RELAY + st.video_url : null, st.ply_url ? RELAY + st.ply_url : null]);
             return;
           }
           if (st.state === "error") throw new Error(st.message || "重建出错(照片可能太少/无法匹配/物体无纹理)");
-          setStatus('<span class="spin"></span>重建中… ' + secs + 's（首次冷启动约 2~5 分钟，勿关页面）');
+          const pct = Math.min(92, 15 + (secs / EST) * 77);
+          const cold = secs > EST;
+          setProg(3, pct);
+          setStatus('<span class="spin"></span>重建中… ' + secs + 's' + (cold ? '（冷启动较慢，请再等等，勿关页面）' : '（约 2 分钟，勿关页面）'));
         }
         throw new Error("超时，请重试(可减少张数或换有纹理的物体)");
       } catch (e) {
+        $("prog").style.display = "none";
         setStatus("建模失败：" + (e.message || e), true);
         $("gen").disabled = false;
       }
@@ -267,11 +293,32 @@
       $("view3d").disabled = true; $("view3d").textContent = "加载中…";
       try {
         const { GS } = await import("./vendor/gsplat.js");
-        const el = $("splat"); el.style.minHeight = "300px";
-        const viewer = new GS.Viewer({ rootElement: el, selfDrivenMode: true, sharedMemoryForWorkers: false });
+        const el = $("splat");
+        el.style.minHeight = "60vh"; el.style.position = "relative";
+        const viewer = new GS.Viewer({
+          rootElement: el, selfDrivenMode: true, sharedMemoryForWorkers: false,
+          useBuiltInControls: true, dynamicScene: false,
+        });
         await viewer.addSplatScene(plyUrl, { format: GS.SceneFormat.Ply, showLoadingUI: true });
-        viewer.start(); $("view3d").style.display = "none";
-      } catch (e) { $("view3d").disabled = false; $("view3d").textContent = "在 3D 里查看泼溅"; setStatus("查看器加载失败(可看视频或下载.ply):" + (e.message || e), true); }
+        viewer.start();
+        // 平滑、好用的触摸控制:单指转、双指缩放+平移、带阻尼
+        const c = viewer.controls;
+        if (c) {
+          c.enableDamping = true; c.dampingFactor = 0.08;
+          c.rotateSpeed = 0.7; c.zoomSpeed = 1.3; c.panSpeed = 0.8;
+          c.enablePan = true; c.screenSpacePanning = true;
+          c.minDistance = 0.05; c.maxDistance = 2000; c.zoomToCursor = true;
+        }
+        $("view3d").style.display = "none";
+        // 操作提示,几秒后淡出
+        const hint = document.createElement("div");
+        hint.id = "splatHint"; hint.textContent = "单指旋转 · 双指缩放/平移";
+        el.appendChild(hint);
+        setTimeout(() => { hint.style.opacity = "0"; }, 4000);
+      } catch (e) {
+        $("view3d").disabled = false; $("view3d").textContent = "在 3D 里查看泼溅";
+        setStatus("查看器加载失败(可看视频或下载.ply):" + (e.message || e), true);
+      }
     }
 
     initCam();
