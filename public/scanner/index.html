@@ -220,51 +220,36 @@
     $("clear").onclick = () => { shots.forEach(s => URL.revokeObjectURL(s.url)); shots.length = 0; covered = new Array(N).fill(false); updateRing(); renderShots(); setStatus(""); };
     $("again").onclick = () => location.reload();
 
-    // ---------- 建模 ----------
-    const HF_BASE = "https://langhua1998-room-splat.hf.space";
-    // 唤醒并轮询后端就绪(冷启动要现编译 CUDA,首次 2~5 分钟)
-    async function waitReady(maxMs) {
-      const t0 = Date.now();
-      fetch(HF_BASE + "/", { cache: "no-store", mode: "no-cors" }).catch(() => {}); // 触发唤醒
-      while (Date.now() - t0 < maxMs) {
-        try {
-          const r = await fetch(HF_BASE + "/config", { cache: "no-store" });
-          if (r.ok) return true;
-        } catch (e) {}
-        const s = Math.round((Date.now() - t0) / 1000);
-        setStatus('<span class="spin"></span>服务器启动中… ' + s + 's（首次冷启动约 2~5 分钟，请耐心等）');
-        await new Promise(r => setTimeout(r, 4000));
-      }
-      return false;
-    }
-
+    // ---------- 建模(经中转 Space:浏览器→中转带token调GPU→轮询取结果)----------
+    const RELAY = "https://langhua1998-splat-relay.hf.space";
     $("gen").onclick = async () => {
       if (shots.length < 3) return;
       stopAuto(); $("gen").disabled = true;
       try {
-        setStatus('<span class="spin"></span>唤醒云端 GPU…');
-        const ready = await waitReady(360000); // 最多等 6 分钟
-        if (!ready) throw new Error("服务器启动超时，请过一会儿再重试");
+        setStatus('<span class="spin"></span>上传照片…');
+        const fd = new FormData();
+        shots.forEach((s, i) => fd.append("files", new File([s.blob], `img_${i}.jpg`, { type: "image/jpeg" })));
+        const sub = await fetch(RELAY + "/submit", { method: "POST", body: fd });
+        if (!sub.ok) throw new Error("上传失败 HTTP " + sub.status);
+        const info = await sub.json();
+        if (info.error) throw new Error(info.error);
+        const jobId = info.job_id;
 
-        const { Client } = await import("./vendor/gradio-client.js");
-        setStatus('<span class="spin"></span>连接中…');
-        const app = await Client.connect(HF_BASE);
-        setStatus('<span class="spin"></span>上传照片、重建中…（约 1~2 分钟，勿关页面）');
-        const files = shots.map((s, i) => new File([s.blob], `img_${i}.jpg`, { type: "image/jpeg" }));
-        const sub = app.submit("/process", [files]);
-        let out = null, sawStatus = false;
-        for await (const msg of sub) {
-          if (msg.type === "status") {
-            sawStatus = true;
-            if (msg.stage === "error") throw new Error(msg.message || "云端重建报错(可能照片太少/无法匹配)");
-            const q = msg.position != null ? `（队列第 ${msg.position} 位）` : "";
-            setStatus('<span class="spin"></span>重建中…' + q + '（勿关页面）');
-          } else if (msg.type === "data") out = msg.data;
+        const t0 = Date.now();
+        while (Date.now() - t0 < 600000) {          // 最多 10 分钟
+          await new Promise(r => setTimeout(r, 4000));
+          let st;
+          try { st = await (await fetch(RELAY + "/status/" + jobId, { cache: "no-store" })).json(); }
+          catch (e) { continue; }                   // 单次轮询失败不致命,继续
+          const secs = Math.round((Date.now() - t0) / 1000);
+          if (st.state === "done") {
+            showResult([st.video_url ? RELAY + st.video_url : null, st.ply_url ? RELAY + st.ply_url : null]);
+            return;
+          }
+          if (st.state === "error") throw new Error(st.message || "重建出错(照片可能太少/无法匹配/物体无纹理)");
+          setStatus('<span class="spin"></span>重建中… ' + secs + 's（首次冷启动约 2~5 分钟，勿关页面）');
         }
-        if (!out) throw new Error(sawStatus
-          ? "重建结束但没拿到结果，可能 GPU 超时。请重试；或多拍几张、换有纹理的物体"
-          : "连接中断，请重试（网络不稳或服务器繁忙）");
-        showResult(out);
+        throw new Error("超时，请重试(可减少张数或换有纹理的物体)");
       } catch (e) {
         setStatus("建模失败：" + (e.message || e), true);
         $("gen").disabled = false;
