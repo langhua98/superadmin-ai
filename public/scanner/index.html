@@ -73,6 +73,9 @@
     .splatClose { position: fixed; top: 12px; right: 12px; z-index: 51; display: none;
       background: rgba(0,0,0,.65); color: #fff; border: 1px solid rgba(255,255,255,.3);
       border-radius: 999px; padding: 9px 16px; font-size: 14px; font-weight: 600; }
+    .splatFlip { position: fixed; top: 12px; left: 12px; z-index: 51; display: none;
+      background: rgba(0,0,0,.65); color: #fff; border: 1px solid rgba(255,255,255,.3);
+      border-radius: 999px; padding: 9px 16px; font-size: 14px; font-weight: 600; }
     .rbar { padding: 12px 16px; display: flex; gap: 10px; flex-wrap: wrap; }
     .tip { padding: 6px 16px 14px; font-size: 12px; color: #8a8a96; line-height: 1.6; }
   </style>
@@ -125,6 +128,7 @@
     <video id="resVideo" controls playsinline loop autoplay muted></video>
     <div id="splat"></div>
     <button class="splatClose" id="splatClose">✕ 返回</button>
+    <button class="splatFlip" id="splatFlip">↕ 翻转</button>
     <div class="rbar">
       <a class="primary" id="dlPly" href="#" download="model.ply" style="display:none;">下载 .ply</a>
       <button class="ghost" id="view3d" style="display:none;">全屏查看 3D 模型</button>
@@ -462,12 +466,19 @@
       if (videoUrl) { $("resVideo").src = videoUrl; $("resVideo").play().catch(() => {}); }
       if (plyUrl) { $("dlPly").href = plyUrl; $("dlPly").style.display = "inline-block"; $("view3d").style.display = "inline-block"; $("view3d").onclick = () => loadSplat(plyUrl); }
     }
-    let splatLoaded = false;
+    let splatLoaded = false, splatViewer = null;
     function showSplat(on) {
       $("splat").classList.toggle("show", on);
       $("splatClose").style.display = on ? "block" : "none";
+      $("splatFlip").style.display = on && splatViewer ? "block" : "none";
     }
     $("splatClose").onclick = () => showSplat(false);
+    // 万一某次重建方向仍不对,一键上下翻转视角
+    $("splatFlip").onclick = () => {
+      if (!splatViewer) return;
+      splatViewer.camera.up.multiplyScalar(-1);
+      splatViewer.controls?.update();
+    };
     async function loadSplat(plyUrl) {
       if (splatLoaded) { showSplat(true); return; }   // 已加载过 → 直接进全屏,不重新下载
       $("view3d").disabled = true; $("view3d").textContent = "加载中…";
@@ -478,9 +489,11 @@
         const viewer = new GS.Viewer({
           rootElement: el, selfDrivenMode: true, sharedMemoryForWorkers: false,
           useBuiltInControls: true, dynamicScene: false,
+          cameraUp: [0, -1, 0],   // InstantSplat 输出是 COLMAP 约定(+Y 朝下),不设会上下颠倒
         });
         await viewer.addSplatScene(plyUrl, { format: GS.SceneFormat.Ply, showLoadingUI: true });
         viewer.start();
+        splatViewer = viewer; $("splatFlip").style.display = "block";
         // 平滑、好用的触摸控制:单指转、双指缩放+平移、带阻尼
         const c = viewer.controls;
         if (c) {
