@@ -155,6 +155,7 @@
   </div>
 
   <div id="result">
+    <div id="resTitle" style="padding:10px 16px 0;font-size:15px;font-weight:600;">我的扫描</div>
     <video id="resVideo" controls playsinline loop autoplay muted></video>
     <div id="splat"></div>
     <button class="splatClose" id="splatClose">✕ 返回</button>
@@ -544,6 +545,9 @@
         if (info.error) throw new Error(info.error);
         const jobId = info.job_id;
 
+        // 建模在云端跑的这几分钟里,顺便本地识别一下拍的是什么(不占用额外时间)
+        identifyScene(pickEven(use, 3).map(s => s.blob));
+
         const EST = 120 + 10 * use.length;           // 按张数估算(热机,2000 迭代);冷启动更久时条会停在 ~92%
         const t0 = Date.now();
         setProg(2, 15);
@@ -578,6 +582,20 @@
         if (!camStream) initCam();          // 失败 → 恢复取景,方便补拍/重试
       }
     };
+
+    // ---------- 自动命名(拍完后台识别,与云端建模并行,不额外等待) ----------
+    let sceneName = null;
+    async function identifyScene(blobs) {
+      try {
+        const { nameScene } = await import("./vision.js");
+        const r = await nameScene(blobs);
+        if (!r) return;
+        sceneName = r.name;
+        $("resTitle").textContent = sceneName + " · 扫描";
+        $("dlPly").setAttribute("download", sceneName + ".ply");
+        say("识别到：" + sceneName);
+      } catch (e) { /* 识别失败不影响建模主流程 */ }
+    }
 
     function fileUrl(x) { if (!x) return null; if (typeof x === "string") return x; return x.url || (x.video && (x.video.url || x.video)) || null; }
     function showResult(data) {
