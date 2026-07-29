@@ -13,6 +13,11 @@
     header { padding: 10px 16px; text-align: center; border-bottom: 1px solid #23232a; }
     header h1 { font-size: 15px; font-weight: 600; }
     header p { font-size: 11px; color: #8a8a96; margin-top: 2px; }
+    /* 场景模式选择 */
+    .modes { display: flex; justify-content: center; gap: 8px; margin-top: 8px; }
+    .chip { padding: 7px 14px; font-size: 13px; font-weight: 600; border: 1px solid #2f2f38;
+      border-radius: 999px; background: #1a1a20; color: #b6b6c2; }
+    .chip.on { background: #4a7dff; border-color: #4a7dff; color: #fff; }
     .wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 
     /* 相机 */
@@ -67,7 +72,12 @@
 <body>
   <header>
     <h1>拍照建模 · 高斯泼溅</h1>
-    <p>绕物体转一圈，自动拍够角度 → 云端 GPU 重建彩色 3D</p>
+    <p>选场景 → 按指引拍够角度 → 云端 GPU 重建彩色 3D</p>
+    <div class="modes" id="modes">
+      <button class="chip on" data-mode="object">🧊 物体</button>
+      <button class="chip" data-mode="room">🏠 房间</button>
+      <button class="chip" data-mode="street">🏙️ 街道</button>
+    </div>
   </header>
 
   <div class="wrap" id="capture">
@@ -97,9 +107,8 @@
         <span id="s1">上传</span><span id="s2">启动GPU</span><span id="s3">重建中</span><span id="s4">完成</span>
       </div>
     </div>
-    <div class="tip">
-      <b>自动模式</b>：点「自动拍摄」并授权方向感应，然后<b>端着手机绕物体走一圈</b>，对准没拍过的角度会自动咔嚓；下方圆环显示哪些角度已覆盖、缺口在哪。转完一圈可<b>抬高/放低手机再转一圈</b>补上下。<br>
-      物体要有纹理、光线均匀；纯色墙/玻璃/反光易失败。首次建模冷启动约 1~3 分钟。
+    <div class="tip" id="tipBody">
+      <b>物体模式</b>：点「自动拍摄」并授权方向感应，然后<b>端着手机绕物体走一圈、镜头朝里</b>，对准没拍过的角度会自动咔嚓；下方圆环显示哪些角度已覆盖、缺口在哪。转完一圈可<b>抬高/放低手机再转一圈</b>补上下。物体要有纹理、光线均匀；纯色墙/玻璃/反光易失败。首次建模冷启动约 1~3 分钟。
     </div>
   </div>
 
@@ -124,6 +133,32 @@
     let autoOn = false;
     let lastCapHeading = -999, lastMoveT = 0, lastH = null;
 
+    // ---------- 场景模式 ----------
+    const MODES = {
+      object: {
+        ring: true, cap: 24, rec: "16",
+        start: "对准物体，点「自动拍摄」开始",
+        count: "（一圈约 16 张，最多 24）",
+        tip: "<b>物体模式</b>：点「自动拍摄」并授权方向感应，然后<b>端着手机绕物体走一圈、镜头朝里</b>，对准没拍过的角度会自动咔嚓；下方圆环显示哪些角度已覆盖、缺口在哪。转完一圈可<b>抬高/放低手机再转一圈</b>补上下。物体要有纹理、光线均匀；纯色墙/玻璃/反光易失败。首次建模冷启动约 1~3 分钟。",
+      },
+      room: {
+        ring: true, cap: 30, rec: "24~30",
+        start: "站在房间中央，点「自动拍摄」原地慢转",
+        count: "（每个位置一圈，建议 24~30 张）",
+        tip: "<b>房间模式</b>：站在房间中央，点「自动拍摄」并授权方向感应，<b>原地慢转一圈、镜头朝外</b>填满圆环；一圈拍完按提示<b>走到另一个角落再原地转一圈</b>，累积多个视角效果更好。转角、家具、有纹理的墙效果好；纯白墙、大玻璃、反光易破洞。小房间比大房间稳。",
+      },
+      street: {
+        ring: false, cap: 30, rec: "20~30", interval: 2500,
+        start: "边走边拍：点「自动拍摄」每 2.5 秒一张",
+        count: "（边走边拍，建议 20~30 张）",
+        tip: "<b>街道 / 户外模式</b>：点「自动拍摄」后<b>边走边拍、镜头朝前或朝建筑</b>，每 2.5 秒自动一张；保持向前、兼顾两侧、相邻两张要有重叠。<b>范围别贪大</b>——单个建筑立面、一小段街景效果最好，整条大街会打折、易破洞。",
+      },
+    };
+    let mode = "object";
+    let loopCount = 0;                      // 房间模式已转的圈数
+    let streetTimer = null;
+    const cfg = () => MODES[mode];
+
     // ---------- 相机 ----------
     async function initCam() {
       try {
@@ -143,9 +178,11 @@
       const el = $("shots");
       if (!shots.length) el.innerHTML = '<span class="empty">还没拍照片</span>';
       else { el.innerHTML = ""; shots.forEach(s => { const i = new Image(); i.src = s.url; el.appendChild(i); }); el.scrollLeft = el.scrollWidth; }
-      $("count").textContent = shots.length + " 张（一圈约需 16 张）";
+      $("count").textContent = shots.length + " 张" + cfg().count;
       $("counter").textContent = shots.length + " 张";
       $("gen").disabled = shots.length < 3;
+      // 到达张数上限:自动停拍,防止 GPU 超时
+      if (shots.length >= cfg().cap && autoOn) { stopAuto(); $("guide").textContent = "照片够了 ✓ 点「开始建模」"; setStatus("已达上限，去建模吧"); }
     }
     function setStatus(m, e) { const s = $("status"); s.className = "status" + (e ? " err" : ""); s.innerHTML = m || ""; }
 
@@ -179,7 +216,16 @@
     }
     function guidance() {
       const done = covered.filter(Boolean).length;
-      if (done >= N) { $("guide").textContent = "这一圈拍完 ✓ 抬高/放低再转一圈，或点开始建模"; return; }
+      if (done >= N) {
+        if (mode === "room") {
+          // 房间:一圈满 → 清空环,提示换位置再转一圈,继续累积
+          loopCount++; covered = new Array(N).fill(false); updateRing();
+          $("guide").textContent = `第 ${loopCount} 圈完成 ✓ 走到另一个角落，继续原地转`;
+        } else {
+          $("guide").textContent = "这一圈拍完 ✓ 抬高/放低再转一圈，或点开始建模";
+        }
+        return;
+      }
       // 找最近的缺口方向
       const cur = heading == null ? 0 : Math.floor(heading / (360 / N)) % N;
       let nearest = -1, best = 99;
@@ -212,11 +258,25 @@
       const sec = Math.floor(heading / (360 / N)) % N;
       const steady = (now - lastMoveT) > 250;       // 稳定 250ms
       const moved = Math.abs(((heading - lastCapHeading + 540) % 360) - 180) > (360 / N) * 0.6;
-      if (!covered[sec] && steady && moved) {
+      if (!covered[sec] && steady && moved && shots.length < cfg().cap) {
         covered[sec] = true; lastCapHeading = heading; capture(); updateRing(); guidance();
       }
     }
     async function startAuto() {
+      if (shots.length >= cfg().cap) { setStatus("照片够了，去建模吧"); return; }
+      // 街道模式:平移拍摄,罗盘环不适用 → 定时间隔自动拍
+      if (mode === "street") {
+        autoOn = true; $("auto").textContent = "自动中·点停"; $("auto").classList.add("on");
+        $("guide").textContent = "继续向前走，兼顾两侧";
+        setStatus("边走边拍：保持向前、相邻两张有重叠");
+        streetTimer = setInterval(() => {
+          if (shots.length >= cfg().cap) { stopAuto(); return; }
+          capture();
+          $("guide").textContent = `继续向前走，兼顾两侧　已拍 ${shots.length + 1}`;
+        }, cfg().interval);
+        return;
+      }
+      // 物体 / 房间:靠方向感应,进入新扇区就拍
       try {
         if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
           const p = await DeviceOrientationEvent.requestPermission();
@@ -224,14 +284,30 @@
         }
         window.addEventListener("deviceorientation", onOrient, true);
         autoOn = true; buildRing(); $("auto").textContent = "自动中·点停"; $("auto").classList.add("on");
-        setStatus("端着手机绕物体走一圈，缺口会自动补拍");
+        setStatus(mode === "room" ? "原地慢转一圈，镜头朝外，缺口会自动补拍" : "端着手机绕物体走一圈，缺口会自动补拍");
       } catch (e) { setStatus("方向感应不可用，用手动快门吧：" + (e.message || e), true); }
     }
-    function stopAuto() { autoOn = false; $("auto").textContent = "自动拍摄"; $("auto").classList.remove("on"); }
+    function stopAuto() {
+      autoOn = false; $("auto").textContent = "自动拍摄"; $("auto").classList.remove("on");
+      if (streetTimer) { clearInterval(streetTimer); streetTimer = null; }
+    }
+
+    // ---------- 模式切换 ----------
+    function setMode(m) {
+      if (!MODES[m] || m === mode) return;
+      stopAuto();
+      mode = m; loopCount = 0; covered = new Array(N).fill(false);
+      document.querySelectorAll("#modes .chip").forEach(c => c.classList.toggle("on", c.dataset.mode === m));
+      $("ring").style.display = "none";
+      $("guide").textContent = cfg().start;
+      $("tipBody").innerHTML = cfg().tip;
+      renderShots();
+    }
+    document.querySelectorAll("#modes .chip").forEach(c => { c.onclick = () => setMode(c.dataset.mode); });
 
     $("auto").onclick = () => autoOn ? stopAuto() : startAuto();
     $("shutter").onclick = capture;
-    $("clear").onclick = () => { shots.forEach(s => URL.revokeObjectURL(s.url)); shots.length = 0; covered = new Array(N).fill(false); updateRing(); renderShots(); setStatus(""); };
+    $("clear").onclick = () => { stopAuto(); shots.forEach(s => URL.revokeObjectURL(s.url)); shots.length = 0; covered = new Array(N).fill(false); loopCount = 0; updateRing(); renderShots(); setStatus(""); };
     $("again").onclick = () => location.reload();
 
     // ---------- 建模(经中转 Space:浏览器→中转带token调GPU→轮询取结果)----------
@@ -322,6 +398,7 @@
     }
 
     initCam();
+    renderShots();
   </script>
 </body>
 </html>
