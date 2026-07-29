@@ -108,7 +108,7 @@
       </div>
     </div>
     <div class="tip" id="tipBody">
-      <b>物体模式</b>：点「自动拍摄」并授权方向感应，然后<b>端着手机绕物体走一圈、镜头朝里</b>，对准没拍过的角度会自动咔嚓；下方圆环显示哪些角度已覆盖、缺口在哪。转完一圈可<b>抬高/放低手机再转一圈</b>补上下。物体要有纹理、光线均匀；纯色墙/玻璃/反光易失败。首次建模冷启动约 1~3 分钟。
+      <b>物体模式</b>：点「自动拍摄」并授权方向感应，然后<b>端着手机绕物体走一圈、镜头朝里</b>，对准没拍过的角度会自动咔嚓；下方圆环显示已覆盖的方位。<b>8~12 张均匀视角就够</b>，不必贪多。物体要有纹理、光线均匀；纯色墙/玻璃/反光易失败。
     </div>
   </div>
 
@@ -134,24 +134,27 @@
     let lastCapHeading = -999, lastMoveT = 0, lastH = null;
 
     // ---------- 场景模式 ----------
+    // 高斯泼溅(InstantSplat)是稀疏视图重建,GPU 单次上限 150s、耗时随图数≈O(n²)。
+    // 8~12 张均匀视角最稳;拍再多也只会等距挑 MAX_UPLOAD 张送去建模。
+    const MAX_UPLOAD = 12;
     const MODES = {
       object: {
-        ring: true, cap: 24, rec: "16",
+        ring: true, cap: 16, rec: "8~12",
         start: "对准物体，点「自动拍摄」开始",
-        count: "（一圈约 16 张，最多 24）",
-        tip: "<b>物体模式</b>：点「自动拍摄」并授权方向感应，然后<b>端着手机绕物体走一圈、镜头朝里</b>，对准没拍过的角度会自动咔嚓；下方圆环显示哪些角度已覆盖、缺口在哪。转完一圈可<b>抬高/放低手机再转一圈</b>补上下。物体要有纹理、光线均匀；纯色墙/玻璃/反光易失败。首次建模冷启动约 1~3 分钟。",
+        count: "（均匀 8~12 张即可）",
+        tip: "<b>物体模式</b>：点「自动拍摄」并授权方向感应，然后<b>端着手机绕物体走一圈、镜头朝里</b>，对准没拍过的角度会自动咔嚓；下方圆环显示已覆盖的方位。<b>8~12 张均匀视角就够</b>，不必贪多。物体要有纹理、光线均匀；纯色墙/玻璃/反光易失败。",
       },
       room: {
-        ring: true, cap: 30, rec: "24~30",
+        ring: true, cap: 18, rec: "10~12",
         start: "站在房间中央，点「自动拍摄」原地慢转",
-        count: "（每个位置一圈，建议 24~30 张）",
-        tip: "<b>房间模式</b>：站在房间中央，点「自动拍摄」并授权方向感应，<b>原地慢转一圈、镜头朝外</b>填满圆环；一圈拍完按提示<b>走到另一个角落再原地转一圈</b>，累积多个视角效果更好。转角、家具、有纹理的墙效果好；纯白墙、大玻璃、反光易破洞。小房间比大房间稳。",
+        count: "（均匀 10~12 张即可）",
+        tip: "<b>房间模式</b>：站在房间中央，点「自动拍摄」并授权方向感应，<b>原地慢转一圈、镜头朝外</b>填满圆环即可。<b>10~12 张均匀视角最稳</b>，别贪多。转角、家具、有纹理的墙效果好；纯白墙、大玻璃、反光易破洞，小房间比大房间稳。",
       },
       street: {
-        ring: false, cap: 30, rec: "20~30", interval: 2500,
+        ring: false, cap: 16, rec: "10~12", interval: 2500,
         start: "边走边拍：点「自动拍摄」每 2.5 秒一张",
-        count: "（边走边拍，建议 20~30 张）",
-        tip: "<b>街道 / 户外模式</b>：点「自动拍摄」后<b>边走边拍、镜头朝前或朝建筑</b>，每 2.5 秒自动一张；保持向前、兼顾两侧、相邻两张要有重叠。<b>范围别贪大</b>——单个建筑立面、一小段街景效果最好，整条大街会打折、易破洞。",
+        count: "（均匀 10~12 张即可）",
+        tip: "<b>街道 / 户外模式</b>：点「自动拍摄」后<b>边走边拍、镜头朝前或朝建筑</b>，每 2.5 秒自动一张；保持向前、相邻两张要有重叠。<b>10~12 张、范围别贪大</b>——单个建筑立面、一小段街景效果最好，整条大街会打折、易破洞。",
       },
     };
     let mode = "object";
@@ -317,20 +320,31 @@
       $("progFill").style.width = Math.max(0, Math.min(100, pct)) + "%";
       [1, 2, 3, 4].forEach(i => $("s" + i).classList.toggle("on", i === step));
     }
+    // 等距挑 k 张(含首末),避免图太多超 GPU 150s 时长 → "GPU task aborted"
+    function pickEven(arr, k) {
+      if (arr.length <= k) return arr.slice();
+      const out = [];
+      for (let i = 0; i < k; i++) out.push(arr[Math.round(i * (arr.length - 1) / (k - 1))]);
+      return out;
+    }
     $("gen").onclick = async () => {
       if (shots.length < 3) return;
       stopAuto(); $("gen").disabled = true;
       try {
-        setProg(1, 8); setStatus('<span class="spin"></span>上传照片…');
+        const use = pickEven(shots, MAX_UPLOAD);
+        setProg(1, 8);
+        setStatus('<span class="spin"></span>' + (shots.length > MAX_UPLOAD
+          ? `从 ${shots.length} 张里挑了 ${use.length} 张最均匀的上传（少而匀 → 更快更稳）…`
+          : "上传照片…"));
         const fd = new FormData();
-        shots.forEach((s, i) => fd.append("files", new File([s.blob], `img_${i}.jpg`, { type: "image/jpeg" })));
+        use.forEach((s, i) => fd.append("files", new File([s.blob], `img_${i}.jpg`, { type: "image/jpeg" })));
         const sub = await fetch(RELAY + "/submit", { method: "POST", body: fd });
         if (!sub.ok) throw new Error("上传失败 HTTP " + sub.status);
         const info = await sub.json();
         if (info.error) throw new Error(info.error);
         const jobId = info.job_id;
 
-        const EST = 130;                             // 热机约 130s;冷启动更久时条会停在 ~92%
+        const EST = 120;                             // ~12 张热机约 120s;冷启动更久时条会停在 ~92%
         const t0 = Date.now();
         setProg(2, 15);
         while (Date.now() - t0 < 600000) {           // 最多 10 分钟
@@ -344,7 +358,12 @@
             showResult([st.video_url ? RELAY + st.video_url : null, st.ply_url ? RELAY + st.ply_url : null]);
             return;
           }
-          if (st.state === "error") throw new Error(st.message || "重建出错(照片可能太少/无法匹配/物体无纹理)");
+          if (st.state === "error") {
+            const m = st.message || "";
+            if (/abort|duration|timeout|out of memory|CUDA/i.test(m))
+              throw new Error("GPU 超时/显存不足。已自动只送均匀 12 张，若仍失败：请重拍——保证有纹理、光线均匀、相邻两张有足够重叠。");
+            throw new Error(m || "重建出错(照片可能太少/无法匹配/物体无纹理)");
+          }
           const pct = Math.min(92, 15 + (secs / EST) * 77);
           const cold = secs > EST;
           setProg(3, pct);
