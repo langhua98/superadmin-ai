@@ -135,6 +135,12 @@
     </div>
     <div class="gimbal">
       <div class="row">
+        <button class="gbtn" id="hpBtn">🎧 耳机当快门</button>
+      </div>
+      <div class="ghint" id="hpHint">开启后<b>按一下 AirPods（播放键）就拍一张</b>，手机装在云台上不用碰屏幕，照片不抖。若无反应请<b>关掉手机侧边的静音开关</b>。蓝牙自拍杆遥控器同理。</div>
+    </div>
+    <div class="gimbal">
+      <div class="row">
         <button class="gbtn" id="gConnect">🎮 连接大疆云台</button>
         <input class="gname" id="gName" placeholder="设备名筛选（可留空）" />
       </div>
@@ -435,7 +441,7 @@
     }
     $("gen").onclick = async () => {
       if (shots.length < 3) return;
-      stopAuto(); stopCam(); $("gen").disabled = true;   // 建模开始 → 释放摄像头
+      stopAuto(); stopCam(); if (hpOn) hpDisable(); $("gen").disabled = true;   // 建模开始 → 释放摄像头/耳机快门
       try {
         // 挑选:快门拍的细节照优先(最多 8 张),其余名额从自动环拍里等距挑 → 同一模型里全景+细节
         const up = cfg().up || MAX_UPLOAD;
@@ -551,6 +557,55 @@
         setStatus("查看器加载失败(可看视频或下载.ply):" + (e.message || e), true);
       }
     }
+
+    // ---------- 耳机/遥控器当快门(MediaSession:占住"正在播放",拦截耳机播放键) ----------
+    // 极低振幅的循环音频(不是纯零,否则系统可能不认为在播放),让 AirPods 的按键事件发到网页
+    function silentWavUrl(seconds = 2) {
+      const sr = 8000, n = sr * seconds;
+      const buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
+      const wr = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+      wr(0, "RIFF"); dv.setUint32(4, 36 + n * 2, true); wr(8, "WAVE");
+      wr(12, "fmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+      dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+      wr(36, "data"); dv.setUint32(40, n * 2, true);
+      for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, i % 2 ? 1 : -1, true);
+      return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+    }
+    let hpAudio = null, hpOn = false, hpLast = 0;
+    function hpTrigger() {
+      const now = Date.now();
+      if (now - hpLast < 400) return;      // 去抖:一次按键可能触发多个事件
+      hpLast = now;
+      capture(true);                        // 等同按快门键 → 计为「细节照」,优先送去建模
+      // 系统可能顺手把音频暂停了,续上,保证下一次按键还能收到
+      if (hpAudio && hpAudio.paused) hpAudio.play().catch(() => {});
+      if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
+    }
+    async function hpEnable() {
+      if (!("mediaSession" in navigator)) { $("hpHint").innerHTML = "<b style='color:#ff9f43'>此浏览器不支持媒体控制</b>，无法用耳机当快门。"; return; }
+      if (!hpAudio) { hpAudio = new Audio(silentWavUrl()); hpAudio.loop = true; hpAudio.volume = 0.02; hpAudio.setAttribute("playsinline", ""); }
+      try { await hpAudio.play(); }        // 必须由点击触发,否则被自动播放策略拦下
+      catch (e) { $("hpHint").innerHTML = "<b style='color:#ff9f43'>开启失败：" + (e.message || e) + "</b>　请确认已<b>关掉侧边静音开关</b>后重试。"; return; }
+      try { navigator.mediaSession.metadata = new MediaMetadata({ title: "拍照快门", artist: "3D 扫描" }); } catch (e) {}
+      navigator.mediaSession.playbackState = "playing";
+      ["play", "pause", "nexttrack", "previoustrack"].forEach(a => {
+        try { navigator.mediaSession.setActionHandler(a, hpTrigger); } catch (e) {}
+      });
+      hpOn = true; $("hpBtn").textContent = "🎧 耳机快门已开"; $("hpBtn").classList.add("on");
+      setStatus("按一下 AirPods 就拍一张");
+    }
+    function hpDisable() {
+      hpOn = false;
+      if (hpAudio) hpAudio.pause();
+      if ("mediaSession" in navigator) {
+        ["play", "pause", "nexttrack", "previoustrack"].forEach(a => {
+          try { navigator.mediaSession.setActionHandler(a, null); } catch (e) {}
+        });
+        navigator.mediaSession.playbackState = "paused";
+      }
+      $("hpBtn").textContent = "🎧 耳机当快门"; $("hpBtn").classList.remove("on");
+    }
+    $("hpBtn").onclick = () => hpOn ? hpDisable() : hpEnable();
 
     // ---------- 大疆云台(Web Bluetooth,动态加载,不拖慢主页面) ----------
     let gimbal = null, gimbalDir = 1, stepMode = true, stepTimer = null, stepDone = 0;
