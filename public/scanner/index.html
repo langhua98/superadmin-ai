@@ -32,6 +32,9 @@
     .flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
     .flash.on { opacity: .5; transition: opacity .05s; }
     .counter { position: absolute; top: 12px; right: 12px; background: rgba(0,0,0,.6); font-size: 12px; padding: 5px 10px; border-radius: 999px; }
+    .lensbtn { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,.6); color: #fff;
+      font-size: 13px; font-weight: 700; padding: 7px 12px; border: 1px solid rgba(255,255,255,.35);
+      border-radius: 999px; pointer-events: auto; display: none; }
 
     /* 底部控制 */
     .ctrl { position: absolute; bottom: 14px; left: 0; right: 0; display: flex; justify-content: center; align-items: center; gap: 18px; pointer-events: auto; }
@@ -86,6 +89,7 @@
       <div class="hud">
         <div class="guide" id="guide">对准物体，点「自动拍摄」开始</div>
         <div class="counter" id="counter">0 张</div>
+        <button class="lensbtn" id="lens">0.5×</button>
         <svg class="ring" id="ring" viewBox="0 0 100 100" style="display:none"></svg>
         <div class="flash" id="flash"></div>
       </div>
@@ -127,11 +131,21 @@
     const HF_SPACE = "langhua1998/room-splat";
     const $ = (id) => document.getElementById(id);
     const shots = [];
-    const N = 16;                          // 一圈分 16 个扇区
+    const N = 16;                          // 物体模式:一圈 16 个扇区
+    const ROOM_N = 8;                      // 房间模式:每圈 8 个扇区(45°一格)
+    // 房间模式三圈:平视拍墙 → 仰拍天花板 → 俯拍地面(pitch = beta-90,抬头为正)
+    const ROOM_PHASES = [
+      { name: "第 1 圈 · 平视拍墙面", min: -20, max: 20 },
+      { name: "第 2 圈 · 抬高手机拍天花板", min: 28, max: 80 },
+      { name: "第 3 圈 · 压低手机拍地面", min: -80, max: -28 },
+    ];
+    let roomPhase = 0, roomDone = false;
+    let pitch = null;                      // 相机俯仰角(°),平视=0
     let covered = new Array(N).fill(false);
     let heading = null;                    // 当前朝向 0-360
     let autoOn = false;
     let lastCapHeading = -999, lastMoveT = 0, lastH = null;
+    const secN = () => (mode === "room" ? ROOM_N : N);
 
     // ---------- 场景模式 ----------
     // 高斯泼溅(InstantSplat)是稀疏视图重建,GPU 单次上限 150s、耗时随图数≈O(n²)。
@@ -145,37 +159,69 @@
         tip: "<b>物体模式</b>：点「自动拍摄」并授权方向感应，然后<b>端着手机绕物体走一圈、镜头朝里</b>，对准没拍过的角度会自动咔嚓；下方圆环显示已覆盖的方位。<b>8~12 张均匀视角就够</b>，不必贪多。物体要有纹理、光线均匀；纯色墙/玻璃/反光易失败。",
       },
       room: {
-        ring: true, cap: 18, rec: "10~12",
-        start: "站在房间中央，点「自动拍摄」原地慢转",
-        count: "（均匀 10~12 张即可）",
-        tip: "<b>房间模式</b>：站在房间中央，点「自动拍摄」并授权方向感应，<b>原地慢转一圈、镜头朝外</b>填满圆环即可。<b>10~12 张均匀视角最稳</b>，别贪多。转角、家具、有纹理的墙效果好；纯白墙、大玻璃、反光易破洞，小房间比大房间稳。",
+        ring: true, cap: 26, rec: "24",
+        start: "站房间中央点「自动拍摄」：平视 / 仰 / 俯各转一圈",
+        count: "（三圈共 24 张，自动挑 12 张建模）",
+        tip: "<b>房间模式</b>：自动用 <b>0.5× 超广角</b>（左上角可切）。站在房间中央，点「自动拍摄」并授权方向感应，按提示转<b>三圈</b>：① 平视转一圈拍墙面 → ② <b>抬高手机约 40°</b> 再转一圈拍天花板 → ③ <b>压低约 40°</b> 转一圈拍地面。跟着屏幕上的「抬高/压低」提示走即可。转角、家具、有纹理的墙效果好；纯白墙、大玻璃、反光易破洞，小房间比大房间稳。",
       },
       street: {
         ring: false, cap: 16, rec: "10~12", interval: 2500,
         start: "边走边拍：点「自动拍摄」每 2.5 秒一张",
         count: "（均匀 10~12 张即可）",
-        tip: "<b>街道 / 户外模式</b>：点「自动拍摄」后<b>边走边拍、镜头朝前或朝建筑</b>，每 2.5 秒自动一张；保持向前、相邻两张要有重叠。<b>10~12 张、范围别贪大</b>——单个建筑立面、一小段街景效果最好，整条大街会打折、易破洞。",
+        tip: "<b>街道 / 户外模式</b>：自动用 <b>0.5× 超广角</b>（左上角可切）。点「自动拍摄」后<b>边走边拍、镜头朝前或朝建筑</b>，每 2.5 秒自动一张；保持向前、相邻两张要有重叠。<b>10~12 张、范围别贪大</b>——单个建筑立面、一小段街景效果最好，整条大街会打折、易破洞。",
       },
     };
     let mode = "object";
-    let loopCount = 0;                      // 房间模式已转的圈数
     let streetTimer = null;
     const cfg = () => MODES[mode];
 
     // ---------- 相机 ----------
-    let camStream = null;
+    let camStream = null, ultraId = null, curLens = "wide";
+    function stopTracks() { if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; } }
+    async function openCam(video) {
+      stopTracks();
+      const s = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+      camStream = s; $("cam").srcObject = s;
+    }
+    // 授权后才能拿到摄像头 label;找 iPhone 的 0.5× 超广角(Back Ultra Wide / 后置超广角)
+    async function scanUltra() {
+      try {
+        const devs = await navigator.mediaDevices.enumerateDevices();
+        for (const d of devs) {
+          if (d.kind === "videoinput" && /ultra[- ]?wide|超广角|超廣角/i.test(d.label) && !/front|前置/i.test(d.label)) {
+            ultraId = d.deviceId; break;
+          }
+        }
+      } catch (e) { /* 拿不到列表就没有切换按钮,静默 */ }
+      updateLensBtn();
+    }
+    function updateLensBtn() {
+      const b = $("lens");
+      if (!ultraId) { b.style.display = "none"; return; }
+      b.style.display = "block";
+      b.textContent = curLens === "ultra" ? "0.5× 广角" : "1×";
+    }
+    async function useLens(l) {
+      if (l === "ultra" && !ultraId) return;
+      try {
+        await openCam(l === "ultra"
+          ? { deviceId: { exact: ultraId }, width: { ideal: 1920 }, height: { ideal: 1440 } }
+          : { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } });
+        curLens = l; updateLensBtn();
+      } catch (e) { setStatus("切换镜头失败：" + (e.message || e), true); }
+    }
     async function initCam() {
       try {
-        const s = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
-        camStream = s; $("cam").srcObject = s;
+        await openCam({ facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } });
+        curLens = "wide";
+        await scanUltra();
+        // 房间/街道要拍大场景,找得到超广角就自动用 0.5×
+        if ((mode === "room" || mode === "street") && ultraId) await useLens("ultra");
       } catch (e) { setStatus("无法打开相机：" + (e.message || e) + "（需 HTTPS + 授权）", true); }
     }
+    $("lens").onclick = () => useLens(curLens === "ultra" ? "wide" : "ultra");
     // 释放摄像头(关掉相机指示灯、省电);建模开始后不再需要取景
-    function stopCam() {
-      const v = $("cam");
-      if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; v.srcObject = null; }
-    }
+    function stopCam() { stopTracks(); $("cam").srcObject = null; }
     function capture() {
       const v = $("cam"); if (!v.videoWidth) return;
       const c = document.createElement("canvas"); c.width = v.videoWidth; c.height = v.videoHeight;
@@ -197,9 +243,10 @@
 
     // ---------- 覆盖环 ----------
     function buildRing() {
+      const n = secN();
       const r = $("ring"); r.innerHTML = ""; r.style.display = "block";
-      for (let i = 0; i < N; i++) {
-        const a0 = (i / N) * 2 * Math.PI - Math.PI / 2, a1 = ((i + 1) / N) * 2 * Math.PI - Math.PI / 2;
+      for (let i = 0; i < n; i++) {
+        const a0 = (i / n) * 2 * Math.PI - Math.PI / 2, a1 = ((i + 1) / n) * 2 * Math.PI - Math.PI / 2;
         const R = 46, r2 = 30, cx = 50, cy = 50;
         const p = (a, rad) => [cx + rad * Math.cos(a), cy + rad * Math.sin(a)];
         const [x0, y0] = p(a0, R), [x1, y1] = p(a1, R), [x2, y2] = p(a1, r2), [x3, y3] = p(a0, r2);
@@ -216,7 +263,7 @@
       arrow.setAttribute("cx", "50"); arrow.setAttribute("cy", "50"); r.appendChild(arrow);
     }
     function updateRing() {
-      for (let i = 0; i < N; i++) $("sec" + i)?.setAttribute("fill", covered[i] ? "#21c07a" : "rgba(255,255,255,.14)");
+      for (let i = 0; i < covered.length; i++) $("sec" + i)?.setAttribute("fill", covered[i] ? "#21c07a" : "rgba(255,255,255,.14)");
       if (heading != null) {
         const a = (heading / 360) * 2 * Math.PI - Math.PI / 2;
         $("hdot")?.setAttribute("cx", (50 + 38 * Math.cos(a)).toFixed(1));
@@ -224,36 +271,39 @@
       }
     }
     function guidance() {
+      const n = covered.length;
       const done = covered.filter(Boolean).length;
-      if (done >= N) {
-        if (mode === "room") {
-          // 房间:一圈满 → 清空环,提示换位置再转一圈,继续累积
-          loopCount++; covered = new Array(N).fill(false); updateRing();
-          $("guide").textContent = `第 ${loopCount} 圈完成 ✓ 走到另一个角落，继续原地转`;
-        } else {
-          $("guide").textContent = "这一圈拍完 ✓ 抬高/放低再转一圈，或点开始建模";
+      if (mode === "room") {
+        if (roomDone) { $("guide").textContent = "三圈拍完 ✓ 点「开始建模」"; return; }
+        const ph = ROOM_PHASES[roomPhase];
+        if (autoOn && pitch != null) {
+          if (pitch < ph.min) { $("guide").textContent = `⬆ 抬高手机（${ph.name}）`; return; }
+          if (pitch > ph.max) { $("guide").textContent = `⬇ 压低手机（${ph.name}）`; return; }
         }
+        $("guide").textContent = `${ph.name}　${done}/${n}`;
         return;
       }
+      if (done >= n) { $("guide").textContent = "这一圈拍完 ✓ 抬高/放低再转一圈，或点开始建模"; return; }
       // 找最近的缺口方向
-      const cur = heading == null ? 0 : Math.floor(heading / (360 / N)) % N;
+      const cur = heading == null ? 0 : Math.floor(heading / (360 / n)) % n;
       let nearest = -1, best = 99;
-      for (let d = 1; d < N; d++) {
-        if (!covered[(cur + d) % N] && d < best) { best = d; nearest = (cur + d) % N; break; }
-        if (!covered[(cur - d + N) % N]) { nearest = (cur - d + N) % N; break; }
+      for (let d = 1; d < n; d++) {
+        if (!covered[(cur + d) % n] && d < best) { best = d; nearest = (cur + d) % n; break; }
+        if (!covered[(cur - d + n) % n]) { nearest = (cur - d + n) % n; break; }
       }
       // 判断左右
       let dir = "转动手机";
       if (nearest >= 0) {
-        let diff = ((nearest - cur + N) % N);
-        dir = diff <= N / 2 ? "→ 向右转" : "← 向左转";
+        let diff = ((nearest - cur + n) % n);
+        dir = diff <= n / 2 ? "→ 向右转" : "← 向左转";
         if (!covered[cur]) dir = "对准物体，稍停";
       }
-      $("guide").textContent = `${dir}　已覆盖 ${done}/${N}`;
+      $("guide").textContent = `${dir}　已覆盖 ${done}/${n}`;
     }
 
     // ---------- 方向感应 + 自动拍 ----------
     function onOrient(e) {
+      if (e.beta != null) pitch = e.beta - 90;      // 竖持手机:平视 beta≈90 → pitch=0,抬头为正
       let h = (typeof e.webkitCompassHeading === "number") ? e.webkitCompassHeading
             : (e.alpha != null ? (360 - e.alpha) : null);
       if (h == null) return;
@@ -264,11 +314,24 @@
       lastH = heading;
       updateRing(); guidance();
       if (!autoOn) return;
-      const sec = Math.floor(heading / (360 / N)) % N;
+      // 房间模式:俯仰角要在当前圈的区间内才拍(平视/仰/俯三圈)
+      if (mode === "room") {
+        if (roomDone) return;
+        const ph = ROOM_PHASES[roomPhase];
+        if (pitch == null || pitch < ph.min || pitch > ph.max) return;
+      }
+      const n = covered.length;
+      const sec = Math.floor(heading / (360 / n)) % n;
       const steady = (now - lastMoveT) > 250;       // 稳定 250ms
-      const moved = Math.abs(((heading - lastCapHeading + 540) % 360) - 180) > (360 / N) * 0.6;
+      const moved = Math.abs(((heading - lastCapHeading + 540) % 360) - 180) > (360 / n) * 0.6;
       if (!covered[sec] && steady && moved && shots.length < cfg().cap) {
-        covered[sec] = true; lastCapHeading = heading; capture(); updateRing(); guidance();
+        covered[sec] = true; lastCapHeading = heading; capture(); updateRing();
+        // 房间:这一圈拍满 → 进下一圈(仰/俯),清环重来;三圈都满 → 完成
+        if (mode === "room" && covered.every(Boolean)) {
+          if (roomPhase < ROOM_PHASES.length - 1) { roomPhase++; covered = new Array(ROOM_N).fill(false); lastCapHeading = -999; updateRing(); }
+          else roomDone = true;
+        }
+        guidance();
       }
     }
     async function startAuto() {
@@ -293,7 +356,7 @@
         }
         window.addEventListener("deviceorientation", onOrient, true);
         autoOn = true; buildRing(); $("auto").textContent = "自动中·点停"; $("auto").classList.add("on");
-        setStatus(mode === "room" ? "原地慢转一圈，镜头朝外，缺口会自动补拍" : "端着手机绕物体走一圈，缺口会自动补拍");
+        setStatus(mode === "room" ? "跟着提示转三圈：平视 → 抬高拍天花板 → 压低拍地面" : "端着手机绕物体走一圈，缺口会自动补拍");
       } catch (e) { setStatus("方向感应不可用，用手动快门吧：" + (e.message || e), true); }
     }
     function stopAuto() {
@@ -305,18 +368,20 @@
     function setMode(m) {
       if (!MODES[m] || m === mode) return;
       stopAuto();
-      mode = m; loopCount = 0; covered = new Array(N).fill(false);
+      mode = m; roomPhase = 0; roomDone = false; covered = new Array(secN()).fill(false);
       document.querySelectorAll("#modes .chip").forEach(c => c.classList.toggle("on", c.dataset.mode === m));
       $("ring").style.display = "none";
       $("guide").textContent = cfg().start;
       $("tipBody").innerHTML = cfg().tip;
       renderShots();
+      // 房间/街道拍大场景 → 自动切超广角;物体近拍 → 回 1×
+      if (camStream) useLens(m === "room" || m === "street" ? (ultraId ? "ultra" : "wide") : "wide");
     }
     document.querySelectorAll("#modes .chip").forEach(c => { c.onclick = () => setMode(c.dataset.mode); });
 
     $("auto").onclick = () => autoOn ? stopAuto() : startAuto();
     $("shutter").onclick = capture;
-    $("clear").onclick = () => { stopAuto(); shots.forEach(s => URL.revokeObjectURL(s.url)); shots.length = 0; covered = new Array(N).fill(false); loopCount = 0; updateRing(); renderShots(); setStatus(""); };
+    $("clear").onclick = () => { stopAuto(); shots.forEach(s => URL.revokeObjectURL(s.url)); shots.length = 0; covered = new Array(secN()).fill(false); roomPhase = 0; roomDone = false; updateRing(); renderShots(); setStatus(""); };
     $("again").onclick = () => location.reload();
 
     // ---------- 建模(经中转 Space:浏览器→中转带token调GPU→轮询取结果)----------
@@ -350,7 +415,7 @@
         if (info.error) throw new Error(info.error);
         const jobId = info.job_id;
 
-        const EST = 120;                             // ~12 张热机约 120s;冷启动更久时条会停在 ~92%
+        const EST = 90 + 8 * use.length;             // 按张数估算(热机);冷启动更久时条会停在 ~92%
         const t0 = Date.now();
         setProg(2, 15);
         while (Date.now() - t0 < 600000) {           // 最多 10 分钟
