@@ -78,6 +78,15 @@
       border-radius: 999px; padding: 9px 16px; font-size: 14px; font-weight: 600; }
     .rbar { padding: 12px 16px; display: flex; gap: 10px; flex-wrap: wrap; }
     .tip { padding: 6px 16px 14px; font-size: 12px; color: #8a8a96; line-height: 1.6; }
+    /* 云台面板 */
+    .gimbal { padding: 10px 16px; border-top: 1px solid #23232a; }
+    .gimbal .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .gbtn { padding: 9px 14px; font-size: 13px; font-weight: 600; border: none; border-radius: 10px; background: #23232a; color: #eaeaf0; }
+    .gbtn.on { background: #21c07a; color: #fff; }
+    .gbtn:disabled { opacity: .4; }
+    .gimbal .glog { margin-top: 8px; max-height: 84px; overflow-y: auto; font-size: 11px; line-height: 1.5;
+      color: #8a8a96; font-family: ui-monospace, Menlo, monospace; background: #141419; border-radius: 8px; padding: 6px 8px; display: none; }
+    .gimbal .ghint { font-size: 11px; color: #6a6a76; margin-top: 6px; line-height: 1.5; }
   </style>
 </head>
 <body>
@@ -121,6 +130,15 @@
     </div>
     <div class="tip" id="tipBody">
       <b>物体模式</b>：点「自动拍摄」并授权方向感应，然后<b>端着手机绕物体走一圈、镜头朝里</b>，对准没拍过的角度会自动咔嚓；下方圆环显示已覆盖的方位。<b>8~12 张均匀视角就够</b>，不必贪多。物体要有纹理、光线均匀；纯色墙/玻璃/反光易失败。
+    </div>
+    <div class="gimbal">
+      <div class="row">
+        <button class="gbtn" id="gConnect">🎮 连接大疆云台</button>
+        <button class="gbtn" id="gSpin" disabled>▶ 自动转圈</button>
+        <button class="gbtn" id="gDir" disabled>↻ 向右</button>
+      </div>
+      <div class="ghint" id="gHint">把手机装上 Osmo Mobile 6，让云台匀速转、自动拍——比手端稳得多。<b>iPhone 需用 Bluefy 浏览器打开本页</b>（Safari 不支持网页蓝牙）。</div>
+      <div class="glog" id="gLog"></div>
     </div>
   </div>
 
@@ -527,6 +545,55 @@
         setStatus("查看器加载失败(可看视频或下载.ply):" + (e.message || e), true);
       }
     }
+
+    // ---------- 大疆云台(Web Bluetooth,动态加载,不拖慢主页面) ----------
+    let gimbal = null, gimbalDir = 1;
+    function glog(m) {
+      const el = $("gLog"); el.style.display = "block";
+      const line = document.createElement("div"); line.textContent = m; el.appendChild(line); el.scrollTop = el.scrollHeight;
+    }
+    $("gConnect").onclick = async () => {
+      if (!navigator.bluetooth) {
+        $("gHint").innerHTML = "<b style='color:#ff9f43'>此浏览器不支持网页蓝牙。</b> iPhone 请到 App Store 装免费的 <b>Bluefy</b> 浏览器，用它打开本页再连云台（Safari 永久禁用了网页蓝牙）。";
+        return;
+      }
+      try {
+        gimbal = await import("./gimbal.js");
+        gimbal.setLog(glog);
+        $("gConnect").disabled = true; $("gConnect").textContent = "连接中…";
+        await gimbal.connect();
+        $("gConnect").textContent = "✅ 已连接"; $("gConnect").classList.add("on");
+        $("gSpin").disabled = false; $("gDir").disabled = false;
+      } catch (e) {
+        $("gConnect").disabled = false; $("gConnect").textContent = "🎮 连接大疆云台";
+        glog("连接失败:" + (e.message || e));
+      }
+    };
+    $("gDir").onclick = () => {
+      gimbalDir = -gimbalDir;
+      $("gDir").textContent = gimbalDir > 0 ? "↻ 向右" : "↺ 向左";
+      if (gimbal && gimbal.isSpinning()) gimbal.startSpin(gimbalDir * 12);   // 立即换向
+    };
+    $("gSpin").onclick = async () => {
+      if (!gimbal) return;
+      if (gimbal.isSpinning()) {
+        gimbal.stopSpin();
+        $("gSpin").textContent = "▶ 自动转圈"; $("gSpin").classList.remove("on");
+      } else {
+        try {
+          // 约 12°/s → 一圈 30s;开转的同时启动自动拍(物体/房间靠罗盘,街道靠间隔)
+          await gimbal.startSpin(gimbalDir * 12);
+          $("gSpin").textContent = "⏹ 停止转圈"; $("gSpin").classList.add("on");
+          if (!autoOn) startAuto();
+        } catch (e) { glog("转动失败:" + (e.message || e)); }
+      }
+    };
+    // 一圈拍满或点停时,顺带停云台
+    const _stopAuto = stopAuto;
+    stopAuto = function () {
+      _stopAuto();
+      if (gimbal && gimbal.isSpinning()) { gimbal.stopSpin(); $("gSpin").textContent = "▶ 自动转圈"; $("gSpin").classList.remove("on"); }
+    };
 
     initCam();
     renderShots();
