@@ -61,13 +61,18 @@
     #prog .steps { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: #6a6a76; }
     #prog .steps span.on { color: #4a7dff; font-weight: 600; }
     /* 查看器操作提示 */
-    #splatHint { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.6); color: #eaeaf0; font-size: 12px; padding: 6px 14px; border-radius: 999px; pointer-events: none; z-index: 5; transition: opacity .6s; }
+    #splatHint { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.6); color: #eaeaf0; font-size: 12px; padding: 6px 14px; border-radius: 999px; pointer-events: none; z-index: 51; transition: opacity .6s; }
     .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid #4a7dff; border-top-color: transparent; border-radius: 50%; animation: r .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
     @keyframes r { to { transform: rotate(360deg); } }
 
     #result { display: none; flex: 1; flex-direction: column; }
     #result video { width: 100%; max-height: 46vh; background: #000; }
-    #splat { flex: 1; min-height: 240px; background: #000; }
+    /* 3D 查看器:全屏覆盖,好操控 */
+    #splat { display: none; position: fixed; inset: 0; z-index: 50; background: #000; }
+    #splat.show { display: block; }
+    .splatClose { position: fixed; top: 12px; right: 12px; z-index: 51; display: none;
+      background: rgba(0,0,0,.65); color: #fff; border: 1px solid rgba(255,255,255,.3);
+      border-radius: 999px; padding: 9px 16px; font-size: 14px; font-weight: 600; }
     .rbar { padding: 12px 16px; display: flex; gap: 10px; flex-wrap: wrap; }
     .tip { padding: 6px 16px 14px; font-size: 12px; color: #8a8a96; line-height: 1.6; }
   </style>
@@ -119,12 +124,13 @@
   <div id="result">
     <video id="resVideo" controls playsinline loop autoplay muted></video>
     <div id="splat"></div>
+    <button class="splatClose" id="splatClose">✕ 返回</button>
     <div class="rbar">
       <a class="primary" id="dlPly" href="#" download="model.ply" style="display:none;">下载 .ply</a>
-      <button class="ghost" id="view3d" style="display:none;">在 3D 里查看泼溅</button>
+      <button class="ghost" id="view3d" style="display:none;">全屏查看 3D 模型</button>
       <button class="ghost" id="again">重新拍</button>
     </div>
-    <div class="tip">上方是重建预览视频。点「在 3D 里查看泼溅」加载可旋转的彩色高斯泼溅（较大，稍等）。</div>
+    <div class="tip">上方是重建预览视频。点「全屏查看 3D 模型」进入全屏查看彩色高斯泼溅（首次加载较大，稍等）；右上角 ✕ 返回。</div>
   </div>
 
   <script type="module">
@@ -456,12 +462,19 @@
       if (videoUrl) { $("resVideo").src = videoUrl; $("resVideo").play().catch(() => {}); }
       if (plyUrl) { $("dlPly").href = plyUrl; $("dlPly").style.display = "inline-block"; $("view3d").style.display = "inline-block"; $("view3d").onclick = () => loadSplat(plyUrl); }
     }
+    let splatLoaded = false;
+    function showSplat(on) {
+      $("splat").classList.toggle("show", on);
+      $("splatClose").style.display = on ? "block" : "none";
+    }
+    $("splatClose").onclick = () => showSplat(false);
     async function loadSplat(plyUrl) {
+      if (splatLoaded) { showSplat(true); return; }   // 已加载过 → 直接进全屏,不重新下载
       $("view3d").disabled = true; $("view3d").textContent = "加载中…";
       try {
         const { GS } = await import("./vendor/gsplat.js");
         const el = $("splat");
-        el.style.minHeight = "60vh"; el.style.position = "relative";
+        showSplat(true);                              // 先显示,查看器才能按全屏尺寸初始化
         const viewer = new GS.Viewer({
           rootElement: el, selfDrivenMode: true, sharedMemoryForWorkers: false,
           useBuiltInControls: true, dynamicScene: false,
@@ -476,14 +489,16 @@
           c.enablePan = true; c.screenSpacePanning = true;
           c.minDistance = 0.05; c.maxDistance = 2000; c.zoomToCursor = true;
         }
-        $("view3d").style.display = "none";
+        splatLoaded = true;
+        $("view3d").disabled = false; $("view3d").textContent = "再看 3D 模型";
         // 操作提示,几秒后淡出
         const hint = document.createElement("div");
         hint.id = "splatHint"; hint.textContent = "单指旋转 · 双指缩放/平移";
         el.appendChild(hint);
         setTimeout(() => { hint.style.opacity = "0"; }, 4000);
       } catch (e) {
-        $("view3d").disabled = false; $("view3d").textContent = "在 3D 里查看泼溅";
+        showSplat(false);
+        $("view3d").disabled = false; $("view3d").textContent = "全屏查看 3D 模型";
         setStatus("查看器加载失败(可看视频或下载.ply):" + (e.message || e), true);
       }
     }
