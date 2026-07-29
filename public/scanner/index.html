@@ -87,6 +87,8 @@
     .gimbal .glog { margin-top: 8px; max-height: 84px; overflow-y: auto; font-size: 11px; line-height: 1.5;
       color: #8a8a96; font-family: ui-monospace, Menlo, monospace; background: #141419; border-radius: 8px; padding: 6px 8px; display: none; }
     .gimbal .ghint { font-size: 11px; color: #6a6a76; margin-top: 6px; line-height: 1.5; }
+    .gname { flex: 1; min-width: 120px; padding: 9px 12px; font-size: 13px; border: 1px solid #2f2f38;
+      border-radius: 10px; background: #141419; color: #eaeaf0; }
   </style>
 </head>
 <body>
@@ -134,10 +136,14 @@
     <div class="gimbal">
       <div class="row">
         <button class="gbtn" id="gConnect">🎮 连接大疆云台</button>
+        <input class="gname" id="gName" placeholder="设备名筛选（可留空）" />
+      </div>
+      <div class="row" style="margin-top:8px">
         <button class="gbtn" id="gSpin" disabled>▶ 自动转圈</button>
         <button class="gbtn" id="gDir" disabled>↻ 向右</button>
+        <button class="gbtn" id="gMode" disabled>步进式</button>
       </div>
-      <div class="ghint" id="gHint">把手机装上 Osmo Mobile 6，让云台匀速转、自动拍——比手端稳得多。<b>iPhone 需用 Bluefy 浏览器打开本页</b>（Safari 不支持网页蓝牙）。</div>
+      <div class="ghint" id="gHint">把手机装上 Osmo Mobile 6，云台自动转、到位自动拍——比手端稳得多，<b>步进式转完停稳再拍，照片不糊</b>。<br><b>iPhone 需用 Bluefy 浏览器打开本页</b>（Safari 不支持网页蓝牙）。留空设备名会列出全部蓝牙设备，从中选你的云台。</div>
       <div class="glog" id="gLog"></div>
     </div>
   </div>
@@ -547,10 +553,15 @@
     }
 
     // ---------- 大疆云台(Web Bluetooth,动态加载,不拖慢主页面) ----------
-    let gimbal = null, gimbalDir = 1;
+    let gimbal = null, gimbalDir = 1, stepMode = true, stepTimer = null, stepDone = 0;
     function glog(m) {
       const el = $("gLog"); el.style.display = "block";
       const line = document.createElement("div"); line.textContent = m; el.appendChild(line); el.scrollTop = el.scrollHeight;
+    }
+    function gimbalRunning() { return !!stepTimer || (gimbal && gimbal.isSpinning()); }
+    function setSpinBtn(on) {
+      $("gSpin").textContent = on ? "⏹ 停止" : "▶ 自动转圈";
+      $("gSpin").classList.toggle("on", on);
     }
     $("gConnect").onclick = async () => {
       if (!navigator.bluetooth) {
@@ -561,9 +572,14 @@
         gimbal = await import("./gimbal.js");
         gimbal.setLog(glog);
         $("gConnect").disabled = true; $("gConnect").textContent = "连接中…";
-        await gimbal.connect();
+        await gimbal.connect($("gName").value.trim());
         $("gConnect").textContent = "✅ 已连接"; $("gConnect").classList.add("on");
-        $("gSpin").disabled = false; $("gDir").disabled = false;
+        $("gSpin").disabled = false; $("gDir").disabled = false; $("gMode").disabled = false;
+        // 3 秒后没有任何回包 → 多半是新固件需要额外握手,给出可操作提示
+        setTimeout(() => {
+          if (gimbal && gimbal.notifyPackets() === 0)
+            glog("⚠️ 云台没有回任何数据。若转动无效,请把本行以上的日志发我。");
+        }, 3000);
       } catch (e) {
         $("gConnect").disabled = false; $("gConnect").textContent = "🎮 连接大疆云台";
         glog("连接失败:" + (e.message || e));
@@ -572,28 +588,49 @@
     $("gDir").onclick = () => {
       gimbalDir = -gimbalDir;
       $("gDir").textContent = gimbalDir > 0 ? "↻ 向右" : "↺ 向左";
-      if (gimbal && gimbal.isSpinning()) gimbal.startSpin(gimbalDir * 12);   // 立即换向
+      if (gimbal && gimbal.isSpinning()) gimbal.startSpin(gimbalDir * 12);   // 匀速模式立即换向
     };
+    $("gMode").onclick = () => {
+      if (gimbalRunning()) return;
+      stepMode = !stepMode;
+      $("gMode").textContent = stepMode ? "步进式" : "匀速式";
+    };
+    function stopGimbal() {
+      if (stepTimer) { clearInterval(stepTimer); stepTimer = null; }
+      if (gimbal && gimbal.isSpinning()) gimbal.stopSpin();
+      setSpinBtn(false);
+    }
     $("gSpin").onclick = async () => {
       if (!gimbal) return;
-      if (gimbal.isSpinning()) {
-        gimbal.stopSpin();
-        $("gSpin").textContent = "▶ 自动转圈"; $("gSpin").classList.remove("on");
-      } else {
-        try {
-          // 约 12°/s → 一圈 30s;开转的同时启动自动拍(物体/房间靠罗盘,街道靠间隔)
-          await gimbal.startSpin(gimbalDir * 12);
-          $("gSpin").textContent = "⏹ 停止转圈"; $("gSpin").classList.add("on");
-          if (!autoOn) startAuto();
-        } catch (e) { glog("转动失败:" + (e.message || e)); }
-      }
+      if (gimbalRunning()) { stopGimbal(); return; }
+      try {
+        if (stepMode) {
+          // 步进:转 N° → 停稳 → 拍 → 再转。照片不糊,角度精确
+          const stepDeg = mode === "room" ? 45 : 22.5;   // 房间 8 格 / 物体 16 格
+          const steps = Math.round(360 / stepDeg);
+          stepDone = 0;
+          setSpinBtn(true);
+          glog("步进模式:每步 " + stepDeg + "°,共 " + steps + " 步");
+          const tick = async () => {
+            if (stepDone >= steps || shots.length >= cfg().cap) { stopGimbal(); glog("✅ 一圈完成"); return; }
+            try {
+              await gimbal.stepRotate(gimbalDir * stepDeg, 0.8);
+              setTimeout(() => { if (stepTimer) capture(); }, 1200);   // 等停稳再拍
+              stepDone++;
+            } catch (e) { glog("步进失败:" + (e.message || e)); stopGimbal(); }
+          };
+          await tick();
+          stepTimer = setInterval(tick, 2200);
+        } else {
+          await gimbal.startSpin(gimbalDir * 12);       // 约 12°/s,一圈 30s
+          setSpinBtn(true);
+          if (!autoOn) startAuto();                     // 靠罗盘自动拍
+        }
+      } catch (e) { glog("转动失败:" + (e.message || e)); stopGimbal(); }
     };
-    // 一圈拍满或点停时,顺带停云台
+    // 停止自动拍时顺带停云台
     const _stopAuto = stopAuto;
-    stopAuto = function () {
-      _stopAuto();
-      if (gimbal && gimbal.isSpinning()) { gimbal.stopSpin(); $("gSpin").textContent = "▶ 自动转圈"; $("gSpin").classList.remove("on"); }
-    };
+    stopAuto = function () { _stopAuto(); if (gimbalRunning()) stopGimbal(); };
 
     initCam();
     renderShots();

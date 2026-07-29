@@ -49,9 +49,11 @@ function crc16(bytes, init) {
     return crc;
 }
 
+export const MODE_RELATIVE = 0x04, MODE_ABSOLUTE = 0x05, MODE_SPEED = 0x80;
+
 export function buildRotate(yaw, pitch, roll, time, mode) {
     const header = [0x55, 0x15, 0x04, 0xa9];
-    const body = [0x02, 0x04, 0x01, 0x00, 0x00, 0x04, mode === 0x80 ? 0x0c : 0x14];
+    const body = [0x02, 0x04, 0x01, 0x00, 0x00, 0x04, mode === MODE_SPEED ? 0x0c : 0x14];
     const p = new Uint8Array(8);
     const dv = new DataView(p.buffer);
     dv.setInt16(0, yaw, true); dv.setInt16(2, roll, true); dv.setInt16(4, pitch, true);
@@ -63,18 +65,23 @@ export function buildRotate(yaw, pitch, roll, time, mode) {
 
 const hex = (u8) => [...u8].map(b => b.toString(16).padStart(2, "0")).join(" ");
 let device = null, writeChar = null, spinTimer = null, log = () => {};
+let notifyCount = 0;
 
 export function setLog(fn) { log = fn; }
 export function isConnected() { return !!(device && device.gatt && device.gatt.connected); }
 export function isSpinning() { return !!spinTimer; }
 export function deviceName() { return device ? (device.name || "未知设备") : null; }
+// 收到过回包 = 云台在跟我们对话(用于区分「没连通」和「连通但忽略指令」)
+export function notifyPackets() { return notifyCount; }
 
-export async function connect() {
+// nameFilter 为空则列出全部蓝牙设备(OM6 的广播名/服务未知,过滤会导致设备根本不显示)
+export async function connect(nameFilter) {
     if (!navigator.bluetooth) throw new Error("此浏览器不支持网页蓝牙");
-    device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [SVC] }, { namePrefix: "OM" }, { namePrefix: "DJI" }, { namePrefix: "Osmo" }],
-        optionalServices: [SVC],
-    });
+    notifyCount = 0;
+    const opts = { optionalServices: [SVC] };
+    if (nameFilter) opts.filters = [{ namePrefix: nameFilter }];
+    else opts.acceptAllDevices = true;
+    device = await navigator.bluetooth.requestDevice(opts);
     device.addEventListener("gattserverdisconnected", () => { log("⚠️ 蓝牙已断开"); stopSpin(true); });
     log("连接中 " + (device.name || device.id) + " …");
     const server = await device.gatt.connect();
@@ -89,29 +96,36 @@ export async function connect() {
         }
     } catch (e) { log("服务枚举失败:" + e.message); }
 
-    const svc = await server.getPrimaryService(SVC);
+    let svc;
+    try { svc = await server.getPrimaryService(SVC); }
+    catch (e) { throw new Error("这台设备没有大疆云台的 FFF0 服务,可能选错设备了"); }
     try {
         const notif = await svc.getCharacteristic(CH_NOTIFY);
         await notif.startNotifications();
-        let nlogged = 0;
         notif.addEventListener("characteristicvaluechanged", (e) => {
-            if (nlogged++ < 5) log("← " + hex(new Uint8Array(e.target.value.buffer)));
+            notifyCount++;
+            if (notifyCount <= 5) log("← " + hex(new Uint8Array(e.target.value.buffer)));
         });
     } catch (e) { log("通知订阅失败(不影响控制):" + e.message); }
     writeChar = await svc.getCharacteristic(CH_WRITE);
-    log("写通道就绪,可以开始转圈");
+    log("写通道就绪,可以开始转动");
     return device.name || "云台";
 }
 
+// 转动包 21 字节 > 默认 MTU 20 字节,必须切分(与 om-research 已验证实现一致)
 async function writePacket(pkt) {
     const w = writeChar.properties.writeWithoutResponse
         ? (d) => writeChar.writeValueWithoutResponse(d)
         : (d) => writeChar.writeValue(d);
-    try { await w(pkt); }
-    catch (e) {
-        // 个别栈限制单次写长度 → 拆两段(DUML 解析端有缓冲,可分段送达)
-        await w(pkt.slice(0, 18)); await w(pkt.slice(18));
-    }
+    for (let off = 0; off < pkt.length; off += 20) await w(pkt.slice(off, off + 20));
+}
+
+// 相对角度步进:转 deg 度后自动停稳 → 拍照不糊。secs = 完成这一步的时间
+export async function stepRotate(deg, secs = 1.0) {
+    if (!writeChar) throw new Error("请先连接云台");
+    const pkt = buildRotate(Math.round(deg * 10), 0, 0, Math.round(secs * 10), MODE_RELATIVE);
+    log("→ 步进 " + deg + "°  " + hex(pkt));
+    await writePacket(pkt);
 }
 
 // degPerSec:正=向右转;speed 指令持续 1s,每 500ms 重发保持匀速
@@ -119,7 +133,7 @@ export async function startSpin(degPerSec) {
     if (!writeChar) throw new Error("请先连接云台");
     stopSpinTimerOnly();
     const yaw = Math.max(-1500, Math.min(1500, Math.round(degPerSec * 10)));
-    const pkt = buildRotate(yaw, 0, 0, 10, 0x80);
+    const pkt = buildRotate(yaw, 0, 0, 10, MODE_SPEED);
     log("→ 转动 " + degPerSec + "°/s  " + hex(pkt));
     const send = () => writePacket(pkt).catch((e) => log("发送失败:" + e.message));
     await writePacket(pkt);
@@ -131,7 +145,7 @@ function stopSpinTimerOnly() { if (spinTimer) { clearInterval(spinTimer); spinTi
 export function stopSpin(silent) {
     stopSpinTimerOnly();
     if (writeChar && isConnected()) {
-        writePacket(buildRotate(0, 0, 0, 10, 0x80)).catch(() => {});
+        writePacket(buildRotate(0, 0, 0, 10, MODE_SPEED)).catch(() => {});
         if (!silent) log("⏹ 已停止转动");
     }
 }
