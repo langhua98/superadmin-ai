@@ -262,13 +262,59 @@
     $("lens").onclick = () => useLens(curLens === "ultra" ? "wide" : "ultra");
     // 释放摄像头(关掉相机指示灯、省电);建模开始后不再需要取景
     function stopCam() { stopTracks(); $("cam").srcObject = null; }
+    // ---------- 清晰度打分(拉普拉斯方差,纯 Canvas,无需下载模型) ----------
+    // 用「跟最近几张比」而非固定阈值:纯白墙本身就低分(没纹理≠糊),
+    // 固定阈值会把房间模式的墙面全判成糊。相对比较只揪出真正的运动模糊。
+    const SHARP_FLOOR = 15;                // 绝对下限:全黑/完全失焦
+    const SHARP_RATIO = 0.4;               // 低于最近中位数的 40% 判为糊
+    const recentSharp = [];
+    let blurStreak = 0;
+    function medianSharp() {
+      if (recentSharp.length < 4) return 0;                 // 样本太少不判
+      const a = recentSharp.slice().sort((x, y) => x - y);
+      return a[a.length >> 1];
+    }
+    const sc = document.createElement("canvas"), scx = sc.getContext("2d", { willReadFrequently: true });
+    function sharpness(srcCanvas) {
+      const w = 320, h = Math.max(1, Math.round(srcCanvas.height * w / srcCanvas.width));
+      sc.width = w; sc.height = h;
+      scx.drawImage(srcCanvas, 0, 0, w, h);
+      const d = scx.getImageData(0, 0, w, h).data;
+      const g = new Float32Array(w * h);
+      for (let i = 0, p = 0; i < d.length; i += 4, p++) g[p] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      let sum = 0, sum2 = 0, n = 0;
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const p = y * w + x;
+          const L = 4 * g[p] - g[p - 1] - g[p + 1] - g[p - w] - g[p + w];   // 3×3 拉普拉斯
+          sum += L; sum2 += L * L; n++;
+        }
+      }
+      if (!n) return 0;
+      const mean = sum / n;
+      return sum2 / n - mean * mean;       // 方差:值越大越锐利
+    }
+
     function capture(manual) {
       const v = $("cam"); if (!v.videoWidth) return;
       const c = document.createElement("canvas"); c.width = v.videoWidth; c.height = v.videoHeight;
       c.getContext("2d").drawImage(v, 0, 0);
+      // 糊的当场丢弃并提示重拍——一张运动模糊照片会污染整个重建
+      const sharp = sharpness(c);
+      const med = medianSharp();
+      const tooBlurry = sharp < SHARP_FLOOR || (med > 0 && sharp < med * SHARP_RATIO);
+      if (tooBlurry && blurStreak < 2) {          // 连拒 2 张后放行,避免卡死拍不上
+        blurStreak++;
+        beep(300, 140); say("太糊了，重拍");
+        setStatus("这张比前几张糊，已丢弃（拿稳一点再拍）", true);
+        return;
+      }
+      blurStreak = 0;
+      recentSharp.push(sharp);
+      if (recentSharp.length > 8) recentSharp.shift();      // 只跟最近 8 张比,适应场景变化
       // manual=快门键拍的「细节照」,上传时优先保留(合入同一模型)
       c.toBlob((blob) => {
-        shots.push({ blob, url: URL.createObjectURL(blob), manual: !!manual });
+        shots.push({ blob, url: URL.createObjectURL(blob), manual: !!manual, sharp });
         renderShots(); flash(); beep(880, 60);          // 滴一声=拍到了(比语音快,不抢话)
         if (shots.length % 5 === 0) say(shots.length + " 张");
       }, "image/jpeg", 0.9);
@@ -277,7 +323,18 @@
     function renderShots() {
       const el = $("shots");
       if (!shots.length) el.innerHTML = '<span class="empty">还没拍照片</span>';
-      else { el.innerHTML = ""; shots.forEach(s => { const i = new Image(); i.src = s.url; if (s.manual) { i.style.outline = "2px solid #ffb14a"; i.style.outlineOffset = "-2px"; } el.appendChild(i); }); el.scrollLeft = el.scrollWidth; }
+      else {
+        el.innerHTML = "";
+        const med0 = medianSharp();
+        shots.forEach(s => {
+          const i = new Image(); i.src = s.url;
+          if (s.manual) { i.style.outline = "2px solid #ffb14a"; i.style.outlineOffset = "-2px"; }
+          if (med0 > 0 && (s.sharp || 0) < med0 * 0.7) i.style.opacity = "0.5";   // 相对偏糊的淡显
+          i.title = "清晰度 " + Math.round(s.sharp || 0);
+          el.appendChild(i);
+        });
+        el.scrollLeft = el.scrollWidth;
+      }
       $("count").textContent = shots.length + " 张" + cfg().count;
       $("counter").textContent = shots.length + " 张";
       $("gen").disabled = shots.length < 3;
@@ -430,7 +487,7 @@
 
     $("auto").onclick = () => autoOn ? stopAuto() : startAuto();
     $("shutter").onclick = () => capture(true);
-    $("clear").onclick = () => { stopAuto(); shots.forEach(s => URL.revokeObjectURL(s.url)); shots.length = 0; covered = new Array(secN()).fill(false); roomPhase = 0; roomDone = false; updateRing(); renderShots(); setStatus(""); };
+    $("clear").onclick = () => { stopAuto(); shots.forEach(s => URL.revokeObjectURL(s.url)); shots.length = 0; covered = new Array(secN()).fill(false); roomPhase = 0; roomDone = false; recentSharp.length = 0; blurStreak = 0; updateRing(); renderShots(); setStatus(""); };
     $("again").onclick = () => location.reload();
 
     // ---------- 建模(经中转 Space:浏览器→中转带token调GPU→轮询取结果)----------
@@ -440,11 +497,23 @@
       $("progFill").style.width = Math.max(0, Math.min(100, pct)) + "%";
       [1, 2, 3, 4].forEach(i => $("s" + i).classList.toggle("on", i === step));
     }
-    // 等距挑 k 张(含首末),避免图太多超 GPU 150s 时长 → "GPU task aborted"
+    // 等距挑 k 张(含首末),避免图太多超 GPU 时长 → "GPU task aborted"
     function pickEven(arr, k) {
       if (arr.length <= k) return arr.slice();
       const out = [];
       for (let i = 0; i < k; i++) out.push(arr[Math.round(i * (arr.length - 1) / (k - 1))]);
+      return out;
+    }
+    // 分成 k 个连续桶,每桶取最清晰的一张:既保持角度均匀,又优先清晰
+    function pickSharpEven(arr, k) {
+      if (arr.length <= k) return arr.slice();
+      const out = [];
+      for (let i = 0; i < k; i++) {
+        const lo = Math.floor(i * arr.length / k), hi = Math.max(lo + 1, Math.floor((i + 1) * arr.length / k));
+        let best = arr[lo];
+        for (let j = lo + 1; j < hi; j++) if ((arr[j].sharp || 0) > (best.sharp || 0)) best = arr[j];
+        out.push(best);
+      }
       return out;
     }
     $("gen").onclick = async () => {
@@ -456,11 +525,11 @@
         const detail = shots.filter(s => s.manual), auto = shots.filter(s => !s.manual);
         let use, label;
         if (!detail.length || !auto.length) {
-          use = pickEven(shots, up);
-          label = shots.length > use.length ? `从 ${shots.length} 张里挑了 ${use.length} 张最均匀的上传…` : "上传照片…";
+          use = pickSharpEven(shots, up);
+          label = shots.length > use.length ? `从 ${shots.length} 张里挑了 ${use.length} 张最匀最清晰的上传…` : "上传照片…";
         } else {
-          const dKeep = pickEven(detail, Math.min(detail.length, 8));
-          const rKeep = pickEven(auto, up - dKeep.length);
+          const dKeep = pickSharpEven(detail, Math.min(detail.length, 8));
+          const rKeep = pickSharpEven(auto, up - dKeep.length);
           const keep = new Set([...dKeep, ...rKeep]);
           use = shots.filter(s => keep.has(s));       // 保持时间序
           label = `上传 ${use.length} 张（全景 ${rKeep.length} + 细节 ${dKeep.length}）…`;
