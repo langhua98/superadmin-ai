@@ -186,6 +186,8 @@
     let heading = null;                    // 当前朝向 0-360
     let autoOn = false;
     let lastCapHeading = -999, lastMoveT = 0, lastH = null;
+    const REJECT_COOLDOWN = 900;           // 糊被拒后的重试冷却(传感器约 60Hz,否则刷屏)
+    let lastRejectT = -1e9, rejectSec = -1, rejectT = 0;
     const secN = () => (mode === "room" ? ROOM_N : N);
 
     // ---------- 场景模式 ----------
@@ -296,8 +298,9 @@
       return sum2 / n - mean * mean;       // 方差:值越大越锐利
     }
 
+    // 返回 true=拍到并留下;false=糊被丢弃(调用方据此决定是否标记该角度已完成)
     function capture(manual) {
-      const v = $("cam"); if (!v.videoWidth) return;
+      const v = $("cam"); if (!v.videoWidth) return false;
       const c = document.createElement("canvas"); c.width = v.videoWidth; c.height = v.videoHeight;
       c.getContext("2d").drawImage(v, 0, 0);
       // 糊的当场丢弃并提示重拍——一张运动模糊照片会污染整个重建
@@ -308,7 +311,7 @@
         blurStreak++;
         beep(300, 140); say("太糊了，重拍");
         setStatus("这张比前几张糊，已丢弃（拿稳一点再拍）", true);
-        return;
+        return false;
       }
       blurStreak = 0;
       recentSharp.push(sharp);
@@ -319,6 +322,7 @@
         renderShots(); flash(); beep(880, 60);          // 滴一声=拍到了(比语音快,不抢话)
         if (shots.length % 5 === 0) say(shots.length + " 张");
       }, "image/jpeg", 0.9);
+      return true;
     }
     function flash() { const f = $("flash"); f.classList.add("on"); setTimeout(() => f.classList.remove("on"), 90); }
     function renderShots() {
@@ -376,6 +380,11 @@
     function guidance() {
       const n = covered.length;
       const done = covered.filter(Boolean).length;
+      // 刚因为糊被丢弃 → 优先提示重拍这个角度(该格仍是缺口)
+      if (rejectSec >= 0 && performance.now() - rejectT < 1800) {
+        $("guide").textContent = "这个角度太糊，停稳一点重拍";
+        return;
+      }
       if (mode === "room") {
         if (roomDone) { $("guide").textContent = "三圈拍完 ✓ 可走近重点区域用快门补拍，或点开始建模"; return; }
         const ph = ROOM_PHASES[roomPhase];
@@ -425,10 +434,18 @@
       }
       const n = covered.length;
       const sec = Math.floor(heading / (360 / n)) % n;
-      const steady = (now - lastMoveT) > 250;       // 稳定 250ms
+      const steady = (now - lastMoveT) > 400;       // 稳定 400ms 才拍:防糊优于拒糊
       const moved = Math.abs(((heading - lastCapHeading + 540) % 360) - 180) > (360 / n) * 0.6;
-      if (!covered[sec] && steady && moved && shots.length < cfg().cap) {
-        covered[sec] = true; lastCapHeading = heading; capture(); updateRing();
+      const cooled = (now - lastRejectT) > REJECT_COOLDOWN;
+      if (!covered[sec] && steady && moved && cooled && shots.length < cfg().cap) {
+        // 关键:只有真拍到了才标记该角度完成;糊被丢弃则保持缺口,引导会把用户带回来重拍
+        if (!capture()) {
+          lastRejectT = now; lastMoveT = now;      // 冷却 + 要求重新停稳,避免每帧重试刷提示
+          rejectSec = sec; rejectT = now;
+          updateRing(); guidance();
+          return;
+        }
+        covered[sec] = true; lastCapHeading = heading; updateRing();
         // 房间:这一圈拍满 → 进下一圈(仰/俯),清环重来;三圈都满 → 完成
         if (mode === "room" && covered.every(Boolean)) {
           if (roomPhase < ROOM_PHASES.length - 1) {
@@ -488,7 +505,7 @@
 
     $("auto").onclick = () => autoOn ? stopAuto() : startAuto();
     $("shutter").onclick = () => capture(true);
-    $("clear").onclick = () => { stopAuto(); shots.forEach(s => URL.revokeObjectURL(s.url)); shots.length = 0; covered = new Array(secN()).fill(false); roomPhase = 0; roomDone = false; recentSharp.length = 0; blurStreak = 0; updateRing(); renderShots(); setStatus(""); };
+    $("clear").onclick = () => { stopAuto(); shots.forEach(s => URL.revokeObjectURL(s.url)); shots.length = 0; covered = new Array(secN()).fill(false); roomPhase = 0; roomDone = false; recentSharp.length = 0; blurStreak = 0; rejectSec = -1; lastRejectT = -1e9; updateRing(); renderShots(); setStatus(""); };
     $("again").onclick = () => location.reload();
 
     // ---------- 建模(经中转 Space:浏览器→中转带token调GPU→轮询取结果)----------
