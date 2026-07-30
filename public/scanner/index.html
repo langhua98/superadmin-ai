@@ -188,6 +188,7 @@
     let lastCapHeading = -999, lastMoveT = 0, lastH = null;
     const REJECT_COOLDOWN = 900;           // 糊被拒后的重试冷却(传感器约 60Hz,否则刷屏)
     let lastRejectT = -1e9, rejectSec = -1, rejectT = 0;
+    let ringGen = 0;                        // 罗盘环"代":每次重建 covered 就 +1,删照片释放扇区时用它对齐
     const secN = () => (mode === "room" ? ROOM_N : N);
 
     // ---------- 场景模式 ----------
@@ -269,7 +270,7 @@
     // 用「跟最近几张比」而非固定阈值:纯白墙本身就低分(没纹理≠糊),
     // 固定阈值会把房间模式的墙面全判成糊。相对比较只揪出真正的运动模糊。
     const SHARP_FLOOR = 15;                // 绝对下限:全黑/完全失焦
-    const SHARP_RATIO = 0.4;               // 低于最近中位数的 40% 判为糊
+    const SHARP_RATIO = 0.55;              // 低于最近中位数的 55% 判为糊(比清晰帧明显软就拦)
     const recentSharp = [];
     let blurStreak = 0;
     function medianSharp() {
@@ -299,7 +300,8 @@
     }
 
     // 返回 true=拍到并留下;false=糊被丢弃(调用方据此决定是否标记该角度已完成)
-    function capture(manual) {
+    // sec=该照片对应的罗盘扇区(自动拍传入,手动/耳机传 null),用于删照片时释放扇区
+    function capture(manual, sec) {
       const v = $("cam"); if (!v.videoWidth) return false;
       const c = document.createElement("canvas"); c.width = v.videoWidth; c.height = v.videoHeight;
       c.getContext("2d").drawImage(v, 0, 0);
@@ -318,7 +320,7 @@
       if (recentSharp.length > 8) recentSharp.shift();      // 只跟最近 8 张比,适应场景变化
       // manual=快门键拍的「细节照」,上传时优先保留(合入同一模型)
       c.toBlob((blob) => {
-        shots.push({ blob, url: URL.createObjectURL(blob), manual: !!manual, sharp });
+        shots.push({ blob, url: URL.createObjectURL(blob), manual: !!manual, sharp, sec: (sec == null ? null : sec), ringGen });
         renderShots(); flash(); beep(880, 60);          // 滴一声=拍到了(比语音快,不抢话)
         if (shots.length % 5 === 0) say(shots.length + " 张");
       }, "image/jpeg", 0.9);
@@ -331,11 +333,12 @@
       else {
         el.innerHTML = "";
         const med0 = medianSharp();
-        shots.forEach(s => {
-          const i = new Image(); i.src = s.url;
+        shots.forEach((s, idx) => {
+          const i = new Image(); i.src = s.url; i.style.cursor = "pointer";
           if (s.manual) { i.style.outline = "2px solid #ffb14a"; i.style.outlineOffset = "-2px"; }
           if (med0 > 0 && (s.sharp || 0) < med0 * 0.7) i.style.opacity = "0.5";   // 相对偏糊的淡显
-          i.title = "清晰度 " + Math.round(s.sharp || 0);
+          i.title = "清晰度 " + Math.round(s.sharp || 0) + "（点可删）";
+          i.onclick = () => deleteShot(idx);
           el.appendChild(i);
         });
         el.scrollLeft = el.scrollWidth;
@@ -347,6 +350,22 @@
       if (shots.length >= cfg().cap && autoOn) { stopAuto(); $("guide").textContent = "照片够了 ✓ 点「开始建模」"; setStatus("已达上限，去建模吧"); say("照片够了，可以建模"); }
     }
     function setStatus(m, e) { const s = $("status"); s.className = "status" + (e ? " err" : ""); s.innerHTML = m || ""; }
+
+    // 点缩略图删除;若这张属于当前罗盘代且占了某扇区,释放该扇区 → 环重新变缺口、引导带回去补拍
+    function deleteShot(idx) {
+      const s = shots[idx];
+      if (!s) return;
+      if (!confirm("删除这张照片？")) return;
+      URL.revokeObjectURL(s.url);
+      shots.splice(idx, 1);
+      if (s.sec != null && s.ringGen === ringGen && covered[s.sec]) {
+        covered[s.sec] = false; updateRing(); guidance();
+        setStatus("已删除，这个角度重新标为待拍");
+      } else {
+        setStatus("已删除");
+      }
+      renderShots();
+    }
 
     // ---------- 覆盖环 ----------
     function buildRing() {
@@ -366,11 +385,27 @@
       }
       // 中心朝向箭头
       const arrow = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      arrow.setAttribute("id", "hdot"); arrow.setAttribute("r", "3"); arrow.setAttribute("fill", "#4a7dff");
+      arrow.setAttribute("id", "hdot"); arrow.setAttribute("r", "4"); arrow.setAttribute("fill", "#4a7dff");
+      arrow.setAttribute("stroke", "#fff"); arrow.setAttribute("stroke-width", "1");
       arrow.setAttribute("cx", "50"); arrow.setAttribute("cy", "50"); r.appendChild(arrow);
     }
     function updateRing() {
-      for (let i = 0; i < covered.length; i++) $("sec" + i)?.setAttribute("fill", covered[i] ? "#21c07a" : "rgba(255,255,255,.14)");
+      const n = covered.length;
+      // 找离当前朝向最近的未覆盖扇区,单独高亮成"该拍这里"
+      let gap = -1;
+      if (covered.some(c => !c)) {
+        const cur = heading == null ? 0 : Math.floor(heading / (360 / n)) % n;
+        for (let d = 0; d < n; d++) {
+          if (!covered[(cur + d) % n]) { gap = (cur + d) % n; break; }
+          if (!covered[(cur - d + n) % n]) { gap = (cur - d + n) % n; break; }
+        }
+      }
+      for (let i = 0; i < n; i++) {
+        const el = $("sec" + i); if (!el) continue;
+        if (covered[i]) { el.setAttribute("fill", "#21c07a"); el.setAttribute("stroke", "rgba(0,0,0,.3)"); el.setAttribute("stroke-width", "0.5"); }
+        else if (i === gap) { el.setAttribute("fill", "#ffb14a"); el.setAttribute("stroke", "#fff"); el.setAttribute("stroke-width", "1.2"); }  // 缺口:琥珀+白描边
+        else { el.setAttribute("fill", "rgba(255,255,255,.08)"); el.setAttribute("stroke", "rgba(0,0,0,.3)"); el.setAttribute("stroke-width", "0.5"); }
+      }
       if (heading != null) {
         const a = (heading / 360) * 2 * Math.PI - Math.PI / 2;
         $("hdot")?.setAttribute("cx", (50 + 38 * Math.cos(a)).toFixed(1));
@@ -439,7 +474,7 @@
       const cooled = (now - lastRejectT) > REJECT_COOLDOWN;
       if (!covered[sec] && steady && moved && cooled && shots.length < cfg().cap) {
         // 关键:只有真拍到了才标记该角度完成;糊被丢弃则保持缺口,引导会把用户带回来重拍
-        if (!capture()) {
+        if (!capture(false, sec)) {
           lastRejectT = now; lastMoveT = now;      // 冷却 + 要求重新停稳,避免每帧重试刷提示
           rejectSec = sec; rejectT = now;
           updateRing(); guidance();
@@ -449,7 +484,7 @@
         // 房间:这一圈拍满 → 进下一圈(仰/俯),清环重来;三圈都满 → 完成
         if (mode === "room" && covered.every(Boolean)) {
           if (roomPhase < ROOM_PHASES.length - 1) {
-            roomPhase++; covered = new Array(ROOM_N).fill(false); lastCapHeading = -999; updateRing();
+            roomPhase++; covered = new Array(ROOM_N).fill(false); ringGen++; lastCapHeading = -999; updateRing();
             say(roomPhase === 1 ? "第一圈完成，把手机抬高，拍天花板" : "第二圈完成，把手机压低，拍地面");
           } else { roomDone = true; say("三圈都拍完了，可以建模"); }
         } else if (mode !== "room" && covered.every(Boolean)) {
@@ -458,8 +493,16 @@
         guidance();
       }
     }
+    // 采样几帧实时预览做清晰度基准,使开拍后头几张也能被判、且基准不被糊照片污染
+    function seedSharpBaseline() {
+      const v = $("cam"); if (!v.videoWidth || recentSharp.length >= 4) return;
+      const c = document.createElement("canvas"); c.width = v.videoWidth; c.height = v.videoHeight;
+      const cx = c.getContext("2d");
+      for (let k = 0; k < 5; k++) { cx.drawImage(v, 0, 0); recentSharp.push(sharpness(c)); }
+    }
     async function startAuto() {
       if (shots.length >= cfg().cap) { setStatus("照片够了，去建模吧"); return; }
+      seedSharpBaseline();
       // 街道模式:平移拍摄,罗盘环不适用 → 定时间隔自动拍
       if (mode === "street") {
         autoOn = true; $("auto").textContent = "自动中·点停"; $("auto").classList.add("on");
@@ -492,7 +535,7 @@
     function setMode(m) {
       if (!MODES[m] || m === mode) return;
       stopAuto();
-      mode = m; roomPhase = 0; roomDone = false; covered = new Array(secN()).fill(false);
+      mode = m; roomPhase = 0; roomDone = false; covered = new Array(secN()).fill(false); ringGen++;
       document.querySelectorAll("#modes .chip").forEach(c => c.classList.toggle("on", c.dataset.mode === m));
       $("ring").style.display = "none";
       $("guide").textContent = cfg().start;
@@ -505,7 +548,7 @@
 
     $("auto").onclick = () => autoOn ? stopAuto() : startAuto();
     $("shutter").onclick = () => capture(true);
-    $("clear").onclick = () => { stopAuto(); shots.forEach(s => URL.revokeObjectURL(s.url)); shots.length = 0; covered = new Array(secN()).fill(false); roomPhase = 0; roomDone = false; recentSharp.length = 0; blurStreak = 0; rejectSec = -1; lastRejectT = -1e9; updateRing(); renderShots(); setStatus(""); };
+    $("clear").onclick = () => { stopAuto(); shots.forEach(s => URL.revokeObjectURL(s.url)); shots.length = 0; covered = new Array(secN()).fill(false); ringGen++; roomPhase = 0; roomDone = false; recentSharp.length = 0; blurStreak = 0; rejectSec = -1; lastRejectT = -1e9; updateRing(); renderShots(); setStatus(""); };
     $("again").onclick = () => location.reload();
 
     // ---------- 建模(经中转 Space:浏览器→中转带token调GPU→轮询取结果)----------
