@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>我的工具</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#0e0e11; --card:#1a1a20; --line:#2a2a32; --fg:#eaeaf0; --muted:#8a8a96; --accent:#4a7dff; }
+    @media (prefers-color-scheme: light) { :root { --bg:#f5f5f7; --card:#fff; --line:#e3e3e8; --fg:#1f2328; --muted:#6a6a76; } }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+    html, body { background: var(--bg); color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    body { min-height: 100dvh; padding: max(28px, env(safe-area-inset-top)) 20px 40px; }
+    header { text-align: center; margin-bottom: 24px; }
+    header h1 { font-size: 22px; font-weight: 700; }
+    header p { font-size: 13px; color: var(--muted); margin-top: 6px; }
+    .grid { max-width: 620px; margin: 0 auto; display: grid; gap: 14px; }
+    a.card { display: flex; align-items: center; gap: 16px; text-decoration: none; color: inherit;
+      background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 18px; }
+    a.card:active { transform: scale(.985); }
+    .ico { width: 52px; height: 52px; flex: 0 0 auto; border-radius: 14px; display: grid; place-items: center; font-size: 27px;
+      background: rgba(74,125,255,.12); }
+    .txt { flex: 1; min-width: 0; }
+    .txt .t { font-size: 17px; font-weight: 600; }
+    .txt .d { font-size: 13px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+    .arw { color: var(--muted); font-size: 20px; }
+    footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 28px; line-height: 1.7; }
+    footer a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>我的工具</h1>
+    <p>把这个页面加到主屏幕，随手就能进</p>
+  </header>
+  <nav class="grid">
+    <a class="card" href="../scanner/">
+      <div class="ico">📸</div>
+      <div class="txt"><div class="t">拍照建模 · 高斯泼溅</div>
+        <div class="d">手机拍照 → 云端 GPU 重建彩色 3D，网页里查看</div></div>
+      <div class="arw">›</div>
+    </a>
+    <a class="card" href="../guide/">
+      <div class="ico">📖</div>
+      <div class="txt"><div class="t">人生进阶指南</div>
+        <div class="d">英语学习 · AI 学习方法 · 人生复盘（在线阅读）</div></div>
+      <div class="arw">›</div>
+    </a>
+    <a class="card" href="../video/">
+      <div class="ico">🎬</div>
+      <div class="txt"><div class="t">刷视频</div>
+        <div class="d">竖屏短视频，上滑看下一个</div></div>
+      <div class="arw">›</div>
+    </a>
+    <a class="card" href="../">
+      <div class="ico">🧊</div>
+      <div class="txt"><div class="t">Web CAD</div>
+        <div class="d">浏览器里的 3D CAD 建模</div></div>
+      <div class="arw">›</div>
+    </a>
+  </nav>
+  <footer>
+    收藏本页：<b>langhua98.github.io/superadmin-ai/apps/</b><br>
+    Safari 里点「分享 → 添加到主屏幕」，就有个 App 图标了。
+  </footer>
+</body>
+</html>
