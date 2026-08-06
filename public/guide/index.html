@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>人生进阶指南 · 阅读器</title>
+  <style>
+    :root {
+      --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --line: #d0d7de;
+      --link: #0969da; --code-bg: #f6f8fa; --quote: #57606a; --bar: #f6f8fa;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0d1117; --fg: #e6edf3; --muted: #8b949e; --line: #30363d;
+        --link: #4493f8; --code-bg: #161b22; --quote: #8b949e; --bar: #161b22;
+      }
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; background: var(--bg); color: var(--fg); }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+      font-size: 17px; line-height: 1.8; -webkit-text-size-adjust: 100%;
+    }
+    /* 顶部固定条 */
+    .bar {
+      position: sticky; top: 0; z-index: 10; background: var(--bar);
+      border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px; padding-top: max(10px, env(safe-area-inset-top));
+    }
+    .bar button { font: inherit; font-size: 14px; border: 1px solid var(--line); background: var(--bg);
+      color: var(--fg); border-radius: 8px; padding: 6px 12px; }
+    .bar .title { font-weight: 700; font-size: 15px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .credit { font-size: 11px; color: var(--muted); padding: 6px 16px; border-bottom: 1px solid var(--line); line-height: 1.5; }
+    .credit a { color: var(--link); }
+
+    main { max-width: 760px; margin: 0 auto; padding: 16px 18px 80px; }
+    /* Markdown 排版 */
+    .md h1 { font-size: 1.7em; margin: .6em 0 .5em; padding-bottom: .3em; border-bottom: 1px solid var(--line); line-height: 1.35; }
+    .md h2 { font-size: 1.4em; margin: 1.4em 0 .5em; padding-bottom: .3em; border-bottom: 1px solid var(--line); line-height: 1.35; }
+    .md h3 { font-size: 1.2em; margin: 1.2em 0 .4em; }
+    .md h4 { font-size: 1.05em; margin: 1em 0 .4em; }
+    .md p, .md li { word-wrap: break-word; overflow-wrap: anywhere; }
+    .md a { color: var(--link); text-decoration: none; }
+    .md a:active { text-decoration: underline; }
+    .md ul, .md ol { padding-left: 1.4em; }
+    .md li { margin: .25em 0; }
+    .md img { max-width: 100%; height: auto; border-radius: 6px; }
+    .md blockquote { margin: 1em 0; padding: .2em 1em; color: var(--quote); border-left: 4px solid var(--line); }
+    .md code { background: var(--code-bg); padding: .15em .4em; border-radius: 6px; font-size: .9em;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-word; }
+    .md pre { background: var(--code-bg); padding: 12px 14px; border-radius: 10px; overflow-x: auto; }
+    .md pre code { background: none; padding: 0; }
+    .md hr { border: none; border-top: 1px solid var(--line); margin: 1.6em 0; }
+    .md table { border-collapse: collapse; display: block; overflow-x: auto; max-width: 100%; }
+    .md th, .md td { border: 1px solid var(--line); padding: 6px 12px; }
+    .md tr:nth-child(2n) { background: var(--code-bg); }
+
+    .state { text-align: center; color: var(--muted); padding: 40px 20px; font-size: 15px; }
+    .state a { color: var(--link); }
+    .spin { display: inline-block; width: 20px; height: 20px; border: 3px solid var(--link);
+      border-top-color: transparent; border-radius: 50%; animation: r .8s linear infinite; vertical-align: -4px; margin-right: 8px; }
+    @keyframes r { to { transform: rotate(360deg); } }
+    .totop { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 9;
+      width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--bar);
+      color: var(--fg); font-size: 18px; display: none; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <button id="back" aria-label="返回">‹ 返回</button>
+    <button id="home">目录</button>
+    <span class="title" id="title">人生进阶指南</span>
+  </div>
+  <div class="credit">
+    内容实时来自作者仓库 <a id="srclink" href="https://github.com/byoungd/up" target="_blank" rel="noopener">byoungd/up</a>（《人生进阶指南》），本页仅做阅读排版、<b>非转载</b>。
+  </div>
+  <main><div class="md" id="doc"><div class="state"><span class="spin"></span>加载中…</div></div></main>
+  <button class="totop" id="totop" aria-label="回到顶部">↑</button>
+
+  <script src="./vendor/marked.min.js"></script>
+  <script>
+    const BASE = "https://cdn.jsdelivr.net/gh/byoungd/up@master/";
+    const DEFAULT = "docs/README.md";
+    const $ = (id) => document.getElementById(id);
+    let curPath = DEFAULT;
+
+    marked.setOptions({ gfm: true, breaks: false });
+
+    function slug(t) {
+      return String(t).trim().toLowerCase()
+        .replace(/[^\w一-龥\- ]/g, "").replace(/\s+/g, "-");
+    }
+    // 把相对 href/src 解析成基于当前文档的仓库相对路径或绝对地址
+    function resolve(href) {
+      try { return new URL(href, BASE + curPath).href; } catch (e) { return href; }
+    }
+    function toRepoPath(absUrl) {
+      return absUrl.startsWith(BASE) ? absUrl.slice(BASE.length) : null;
+    }
+
+    function rewrite(container) {
+      // 标题加 id,支持页内锚点
+      container.querySelectorAll("h1,h2,h3,h4,h5,h6").forEach(h => { if (!h.id) h.id = slug(h.textContent); });
+      // 图片相对路径 → jsDelivr 绝对
+      container.querySelectorAll("img[src]").forEach(img => {
+        const s = img.getAttribute("src");
+        if (s && !/^https?:|^data:/i.test(s)) img.src = resolve(s);
+        img.loading = "lazy";
+      });
+      // 链接分流
+      container.querySelectorAll("a[href]").forEach(a => {
+        const href = a.getAttribute("href") || "";
+        if (/^https?:/i.test(href)) { a.target = "_blank"; a.rel = "noopener"; return; }
+        if (href.startsWith("#")) { a.onclick = (e) => { e.preventDefault(); scrollToFrag(href.slice(1)); }; return; }
+        const abs = resolve(href);
+        const repo = toRepoPath(abs.split("#")[0]);
+        const frag = abs.includes("#") ? abs.split("#")[1] : "";
+        if (repo && /\.md$/i.test(repo)) {
+          a.onclick = (e) => { e.preventDefault(); loadDoc(repo, true, frag); };
+        } else {
+          // 非 md 的相对链接(目录、图片等)→ 交给 GitHub 打开,避免误渲染
+          a.href = "https://github.com/byoungd/up/blob/master/" + (repo || href);
+          a.target = "_blank"; a.rel = "noopener";
+        }
+      });
+    }
+
+    function scrollToFrag(frag) {
+      if (!frag) return;
+      const el = document.getElementById(decodeURIComponent(frag)) || document.getElementById(slug(decodeURIComponent(frag)));
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    async function loadDoc(path, push, frag) {
+      $("doc").innerHTML = '<div class="state"><span class="spin"></span>加载中…</div>';
+      try {
+        const res = await fetch(BASE + path, { cache: "force-cache" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const md = await res.text();
+        curPath = path;
+        $("doc").innerHTML = marked.parse(md);
+        rewrite($("doc"));
+        // 标题:取第一个 h1,否则用路径
+        const h1 = $("doc").querySelector("h1");
+        $("title").textContent = h1 ? h1.textContent : path.split("/").pop();
+        $("srclink").href = "https://github.com/byoungd/up/blob/master/" + path;
+        if (push) history.pushState({ path }, "", "#" + path);
+        if (frag) setTimeout(() => scrollToFrag(frag), 60);
+        else window.scrollTo(0, 0);
+      } catch (e) {
+        $("doc").innerHTML = '<div class="state">加载失败：' + (e.message || e) +
+          '。<br>网络可能无法访问 jsDelivr。可直接在 GitHub 阅读：<br><br>' +
+          '<a href="https://github.com/byoungd/up/blob/master/' + path + '" target="_blank" rel="noopener">在 GitHub 打开本页 ›</a></div>';
+      }
+    }
+
+    $("home").onclick = () => loadDoc(DEFAULT, true);
+    $("back").onclick = () => history.back();
+    $("totop").onclick = () => window.scrollTo({ top: 0, behavior: "smooth" });
+    window.addEventListener("popstate", (e) => {
+      const p = (e.state && e.state.path) || (location.hash ? decodeURIComponent(location.hash.slice(1)) : DEFAULT);
+      loadDoc(p, false);
+    });
+    window.addEventListener("scroll", () => { $("totop").style.display = window.scrollY > 600 ? "block" : "none"; });
+
+    // 首屏:从 hash 恢复,否则默认目录
+    const start = location.hash ? decodeURIComponent(location.hash.slice(1)) : DEFAULT;
+    history.replaceState({ path: start }, "", "#" + start);
+    loadDoc(start, false);
+  </script>
+</body>
+</html>
